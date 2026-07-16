@@ -1,0 +1,48 @@
+# Project Colony
+
+One Colony, Infinite Compute.
+
+Project Colony turns a group of ordinary, unreliable machines into one virtual supercomputer. A contributor runs a small desktop app that donates part of their CPU, RAM, and GPU. An operator groups those machines into a Colony and runs real work across them, starting with distributed inference of a small language model.
+
+This repository holds the v0.1 beta: a working proof of concept that a handful of random computers can act as one AI supercomputer.
+
+## What is in v0.1
+
+- **Coordinator** a single Go service with an embedded database. It is the central brain that tracks nodes, forms colonies, and relays data between nodes during a job.
+- **Node GUI** a cross platform desktop app that detects hardware, lets the user choose how much to donate, streams status to the Coordinator, and shows a live contributor dashboard.
+- **Admin Dashboard** a web app that shows the whole fleet, creates and deletes colonies, and deploys the language model test.
+- **LLM Runner** a Python worker that splits a small model across two nodes and returns generated text.
+- **Infra** Docker Compose for the Coordinator and Admin dashboard, plus the database schema.
+
+## Layout
+
+```
+coordinator/       Go service (gRPC, REST, WebSocket relay, SQLite)
+node-gui/          Wails desktop app (Go daemon plus React frontend)
+admin-dashboard/   Next.js 14 web app
+llm-runner/        Python distributed inference worker
+infra/             docker-compose, Dockerfiles, database schema
+docs/              beta guide and architecture notes
+```
+
+## Quick start (Coordinator and Admin dashboard)
+
+Requires Docker.
+
+```
+cp infra/.env.example infra/.env
+cd infra
+docker compose up --build
+```
+
+The Coordinator listens on port 8080 and the Admin dashboard on port 3000.
+
+Contributors install the Node GUI on their own machine from the packaged installer. See `docs/` for the beta guide.
+
+## The killer test
+
+The point of v0.1 is one flow. An operator selects a colony, clicks Deploy LLM, and types a prompt. The first node runs the lower half of the model and sends its intermediate result through the Coordinator to a second node, which finishes the work and returns the generated text to the dashboard. If that works across a few machines behind different networks, the core idea is proven.
+
+## License
+
+Apache License 2.0. See `LICENSE`.

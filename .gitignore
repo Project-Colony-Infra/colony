@@ -1,0 +1,51 @@
+# Environment and secrets
+.env
+.env.local
+*.local
+
+# Go
+/coordinator/bin/
+*.exe
+*.test
+*.out
+coordinator/coordinator
+
+# Node and Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Wails
+node-gui/build/bin/
+node-gui/frontend/dist/
+node-gui/frontend/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+colony.db
+
+# Model and runtime cache
+llm-runner/.cache/
+llm-runner/models/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

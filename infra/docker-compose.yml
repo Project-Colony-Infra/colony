@@ -1,0 +1,35 @@
+# Runs the Coordinator and the Admin dashboard.
+# The Node GUI is a desktop app and runs on contributor host machines, not here.
+# Placeholder wiring for v0.1. Service builds are filled in during Phase 0 and Phase 3.
+
+services:
+  coordinator:
+    build:
+      context: ../coordinator
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - coordinator-data:/data
+    environment:
+      - COORDINATOR_HTTP_PORT=8080
+      - COORDINATOR_DB_PATH=/data/colony.db
+      - NODE_OFFLINE_AFTER_SECONDS=15
+    restart: unless-stopped
+
+  admin-dashboard:
+    build:
+      context: ../admin-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - COORDINATOR_API_URL=http://coordinator:8080
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin
+    depends_on:
+      - coordinator
+    restart: unless-stopped
+
+volumes:
+  coordinator-data:
