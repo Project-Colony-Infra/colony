@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package colony.v1;
+
+option go_package = "github.com/projectcolony/colony/coordinator/proto;colonyv1";
+
+// NodeService is the contract between a Node agent and the Coordinator.
+service NodeService {
+  // Register is called once when a node comes online. The Coordinator assigns
+  // a node id and returns the list of currently active colonies.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Heartbeat is a bidirectional stream. The node sends its live utilization
+  // every few seconds and the Coordinator replies with an acknowledgement that
+  // carries the node's current colony assignment and any pending command.
+  rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse);
+
+  // ReportError pushes a node side error into the Coordinator issues feed.
+  rpc ReportError(ReportErrorRequest) returns (ReportErrorResponse);
+}
+
+// Total physical resources on a machine.
+message Resources {
+  int32 cpu_cores = 1;
+  int32 ram_gb = 2;
+  string gpu_model = 3;
+  int32 gpu_memory_gb = 4;
+  int32 disk_gb = 5;
+}
+
+// The share of resources a contributor chooses to donate.
+message Allocation {
+  int32 cpu_cores = 1;
+  int32 ram_gb = 2;
+  int32 gpu_memory_gb = 3;
+  int32 bandwidth_mbps = 4;
+}
+
+// Live usage sampled by the node agent.
+message Utilization {
+  double cpu_used = 1;
+  double ram_used_gb = 2;
+  double gpu_mem_used_gb = 3;
+  double gpu_temp_c = 4;
+}
+
+message RegisterRequest {
+  string name = 1;
+  string os = 2;
+  string arch = 3;
+  Resources resources = 4;
+  Allocation allocated = 5;
+}
+
+message ColonySummary {
+  string id = 1;
+  string name = 2;
+}
+
+message RegisterResponse {
+  string node_id = 1;
+  repeated ColonySummary colonies = 2;
+  int32 heartbeat_interval_seconds = 3;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  string timestamp = 2; // RFC3339
+  Utilization utilization = 3;
+  string current_colony_id = 4;
+}
+
+message HeartbeatResponse {
+  string status = 1;             // ACK or REREGISTER
+  string assigned_colony_id = 2; // colony the coordinator has placed this node in
+  string command = 3;            // optional command, empty when there is nothing to do
+}
+
+message ReportErrorRequest {
+  string node_id = 1;
+  string level = 2;   // INFO, WARN, ERROR
+  string message = 3;
+  string timestamp = 4;
+}
+
+message ReportErrorResponse {
+  bool ok = 1;
+}
