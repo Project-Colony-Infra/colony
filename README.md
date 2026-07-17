@@ -1,5 +1,7 @@
 # Project Colony
 
+[![CI](https://github.com/Project-Colony-Infra/colony/actions/workflows/ci.yml/badge.svg)](https://github.com/Project-Colony-Infra/colony/actions/workflows/ci.yml)
+
 One Colony, Infinite Compute.
 
 Project Colony turns a group of ordinary, unreliable machines into one virtual supercomputer. A contributor runs a small desktop app that donates part of their CPU, RAM, and GPU. An operator groups those machines into a Colony and runs real work across them, starting with distributed inference of a small language model.

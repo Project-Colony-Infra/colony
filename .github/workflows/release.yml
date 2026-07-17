@@ -1,0 +1,112 @@
+name: Release
+
+# Tag a commit like v0.1.0 to build the installers and cut a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  node-desktop:
+    name: Node desktop app
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+            artifact: colony-node-linux
+          - os: macos-latest
+            platform: darwin/universal
+            artifact: colony-node-macos
+          - os: windows-latest
+            platform: windows/amd64
+            artifact: colony-node-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The desktop window needs a webview. macOS and Windows runners already
+      # have one (system WebKit and WebView2). Linux needs the gtk and webkit
+      # development packages.
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install the Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      # The desktop entry is behind the `desktop` build tag, so the module keeps
+      # the Wails dependency out of the headless build. Add it here for the build.
+      - name: Add the Wails dependency
+        working-directory: node-gui
+        run: go mod tidy
+
+      - name: Build the desktop app
+        working-directory: node-gui
+        run: wails build -tags desktop -platform ${{ matrix.platform }} -o colony-node
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: node-gui/build/bin/*
+
+  coordinator:
+    name: Coordinator binary
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Build
+        working-directory: coordinator
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          go build -trimpath -o "dist/coordinator-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./cmd/server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coordinator-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: coordinator/dist/*
+
+  release:
+    name: Publish release
+    needs: [node-desktop, coordinator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          files=$(find artifacts -type f)
+          gh release create "${{ github.ref_name }}" $files \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
