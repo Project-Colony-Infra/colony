@@ -51,6 +51,14 @@ type Ranking struct {
 	AverageScore float64 `json:"average_score"`
 }
 
+// ColonyUsage is how much of the contribution the Colony is actually using right
+// now, measured from the worker process. It is zero when no job is running.
+type ColonyUsage struct {
+	CPUCores float64 `json:"cpu_cores"`
+	RAMGB    float64 `json:"ram_gb"`
+	Active   bool    `json:"active"`
+}
+
 // State is an immutable snapshot handed to the API and the GUI.
 type State struct {
 	NodeName       string                `json:"node_name"`
@@ -63,6 +71,7 @@ type State struct {
 	Specs          resources.Specs       `json:"specs"`
 	Allocation     config.Allocation     `json:"allocation"`
 	Utilization    resources.Utilization `json:"utilization"`
+	ColonyUsage    ColonyUsage           `json:"colony_usage"`
 	Ranking        Ranking               `json:"ranking"`
 	Events         []Event               `json:"events"`
 }
@@ -82,6 +91,8 @@ type Daemon struct {
 	conn        *client.Client
 	gpuOverTemp bool
 	lastJobID   string
+	colonyUsage worker.Usage
+	colonyBusy  bool
 
 	reconnect chan struct{}
 }
@@ -169,8 +180,13 @@ func (d *Daemon) Snapshot() State {
 		Specs:          d.specs,
 		Allocation:     d.cfg.Allocation,
 		Utilization:    d.util,
-		Ranking:        d.ranking,
-		Events:         events,
+		ColonyUsage: ColonyUsage{
+			CPUCores: d.colonyUsage.CPUCores,
+			RAMGB:    d.colonyUsage.RAMGB,
+			Active:   d.colonyBusy,
+		},
+		Ranking: d.ranking,
+		Events:  events,
 	}
 }
 
@@ -428,7 +444,24 @@ func (d *Daemon) handleCommand(ctx context.Context, raw string) {
 
 func (d *Daemon) runJob(ctx context.Context, cmd worker.Command, host string) {
 	d.log("INFO", "Received LLM task "+cmd.JobID+" as the "+cmd.Role+" node")
-	if err := worker.Launch(ctx, cmd, host, d.log); err != nil {
+
+	d.mu.Lock()
+	d.colonyBusy = true
+	d.mu.Unlock()
+
+	sample := func(u worker.Usage) {
+		d.mu.Lock()
+		d.colonyUsage = u
+		d.mu.Unlock()
+	}
+	err := worker.Launch(ctx, cmd, host, d.log, sample)
+
+	d.mu.Lock()
+	d.colonyBusy = false
+	d.colonyUsage = worker.Usage{}
+	d.mu.Unlock()
+
+	if err != nil {
 		d.PushError("ERROR", "LLM task "+cmd.JobID+" failed: "+err.Error())
 	}
 }

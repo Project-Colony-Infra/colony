@@ -4,6 +4,7 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -12,7 +13,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/shirou/gopsutil/v3/process"
 )
+
+const bytesPerGB = 1024 * 1024 * 1024
 
 // Command mirrors the job spec the Coordinator sends in the heartbeat response.
 type Command struct {
@@ -47,10 +53,19 @@ func pythonPath() string {
 	return "python3"
 }
 
+// Usage is the worker process's live resource draw, which is how much of the
+// contribution the Colony is actually using on this node.
+type Usage struct {
+	CPUCores float64
+	RAMGB    float64
+}
+
 // Launch runs the worker for one job and blocks until it exits. Output is passed
-// to logfn line by line. The worker exchanges tensors over the relay, so its
-// stdout is only diagnostics.
-func Launch(ctx context.Context, cmd Command, coordinatorHost string, logfn func(level, message string)) error {
+// to logfn line by line. While the worker runs, sampleFn is called about once a
+// second with the process's live CPU and memory draw, so the node can show what
+// of the contribution the Colony is using; it is called with a zero Usage once
+// the worker exits. sampleFn may be nil.
+func Launch(ctx context.Context, cmd Command, coordinatorHost string, logfn func(level, message string), sampleFn func(Usage)) error {
 	script, err := scriptPath()
 	if err != nil {
 		return fmt.Errorf("resolve worker script: %w", err)
@@ -79,15 +94,65 @@ func Launch(ctx context.Context, cmd Command, coordinatorHost string, logfn func
 	}
 
 	logfn("INFO", fmt.Sprintf("Starting %s worker for job %s", cmd.Role, cmd.JobID))
-	out, err := exec.CommandContext(ctx, pythonPath(), args...).CombinedOutput()
-	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+
+	var out bytes.Buffer
+	proc := exec.CommandContext(ctx, pythonPath(), args...)
+	proc.Stdout = &out
+	proc.Stderr = &out
+	if err := proc.Start(); err != nil {
+		return fmt.Errorf("start worker: %w", err)
+	}
+
+	// Sample the worker's usage until it exits, then reset to zero.
+	done := make(chan struct{})
+	if sampleFn != nil {
+		go sampleUsage(proc.Process.Pid, sampleFn, done)
+	}
+
+	waitErr := proc.Wait()
+	close(done)
+	if sampleFn != nil {
+		sampleFn(Usage{})
+	}
+
+	// out is only written by the process, and it has now exited, so reading it
+	// here is race free.
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
 		if strings.TrimSpace(line) != "" {
 			logfn("INFO", "worker: "+line)
 		}
 	}
-	if err != nil {
-		return fmt.Errorf("worker exited: %w", err)
+	if waitErr != nil {
+		return fmt.Errorf("worker exited: %w", waitErr)
 	}
 	logfn("INFO", fmt.Sprintf("Worker for job %s finished", cmd.JobID))
 	return nil
+}
+
+// sampleUsage reports the worker process's CPU and memory draw about once a
+// second until done is closed. gopsutil Percent needs a prior call to establish
+// a baseline, so the first tick is primed and skipped.
+func sampleUsage(pid int, sampleFn func(Usage), done chan struct{}) {
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return
+	}
+	_, _ = p.Percent(0) // prime the CPU baseline
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			var u Usage
+			if pct, err := p.Percent(0); err == nil {
+				u.CPUCores = pct / 100.0 // gopsutil reports 100 percent as one core
+			}
+			if mi, err := p.MemoryInfo(); err == nil && mi != nil {
+				u.RAMGB = float64(mi.RSS) / bytesPerGB
+			}
+			sampleFn(u)
+		}
+	}
 }

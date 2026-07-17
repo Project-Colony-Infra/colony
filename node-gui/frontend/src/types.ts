@@ -22,6 +22,12 @@ export interface Utilization {
   gpu_temp_c: number;
 }
 
+export interface ColonyUsage {
+  cpu_cores: number;
+  ram_gb: number;
+  active: boolean;
+}
+
 export interface ActivityEvent {
   time: string;
   level: string;
@@ -46,6 +52,7 @@ export interface State {
   specs: Specs;
   allocation: Allocation;
   utilization: Utilization;
+  colony_usage: ColonyUsage;
   ranking: Ranking;
   events: ActivityEvent[];
 }

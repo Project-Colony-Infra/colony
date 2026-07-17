@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -77,6 +78,11 @@ func Detect() Specs {
 // to recognise the same device across reinstalls so it never appears as two
 // nodes. It is hashed so the raw machine id never leaves the box.
 func Fingerprint() string {
+	// An explicit override lets several nodes run on one machine (local testing,
+	// or a deliberate multi-tenant host) without collapsing into one record.
+	if v := strings.TrimSpace(os.Getenv("COLONY_FINGERPRINT")); v != "" {
+		return v
+	}
 	parts := []string{runtime.GOARCH}
 	if info, err := host.Info(); err == nil {
 		parts = append(parts, info.HostID, info.Hostname)

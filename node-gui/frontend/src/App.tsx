@@ -233,6 +233,48 @@ function Overview({ state }: { state: State }) {
           </div>
         )}
       </Card>
+
+      <ContributionUsage state={state} />
+    </div>
+  );
+}
+
+// ContributionUsage shows how much of the pledge the Colony is actually drawing
+// on right now, separate from the machine's own usage. It is zero when no Colony
+// task is running here, and moves when one is, so a contributor can see their
+// donation being put to work rather than only what they set aside.
+function ContributionUsage({ state }: { state: State }) {
+  const cu = state.colony_usage;
+  const a = state.allocation;
+  return (
+    <Card title="Colony use of your contribution">
+      <p className="text-sm text-colony-slate">
+        {cu.active
+          ? "The Colony is running a task on your node. This is how much of what you pledged it is drawing right now."
+          : "The Colony is not running anything on your node right now, so none of your pledge is in use. This moves when a task runs here."}
+      </p>
+      <div className="mt-3 space-y-4">
+        <UsageBar label="CPU" used={cu.cpu_cores} pledged={a.cpu_cores} unit="cores" />
+        <UsageBar label="Memory" used={cu.ram_gb} pledged={a.ram_gb} unit="GB" />
+      </div>
+    </Card>
+  );
+}
+
+function UsageBar({ label, used, pledged, unit }: { label: string; used: number; pledged: number; unit: string }) {
+  const pct = pledged > 0 ? Math.min(100, Math.round((used / pledged) * 100)) : 0;
+  const free = Math.max(0, pledged - used);
+  return (
+    <div className="text-sm">
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <span className="text-colony-slate">{label}</span>
+        <span className="font-mono text-xs text-colony-charcoal">
+          {used.toFixed(1)} of {pledged} {unit} in use, {free.toFixed(1)} free
+        </span>
+      </div>
+      <div className="h-2 w-full rounded bg-colony-mist">
+        <div className="h-2 rounded bg-colony-vibrant" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
