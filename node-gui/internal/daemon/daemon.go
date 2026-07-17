@@ -5,13 +5,17 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/projectcolony/colony/node-gui/internal/client"
 	"github.com/projectcolony/colony/node-gui/internal/config"
 	"github.com/projectcolony/colony/node-gui/internal/resources"
+	"github.com/projectcolony/colony/node-gui/internal/worker"
 )
 
 // Connection states between the node and the Coordinator.
@@ -71,6 +75,7 @@ type Daemon struct {
 	events      []Event
 	conn        *client.Client
 	gpuOverTemp bool
+	lastJobID   string
 
 	reconnect chan struct{}
 }
@@ -263,6 +268,7 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, cli *client.Client, nodeID s
 			}
 			d.mu.Unlock()
 			d.checkGPUTemp(util.GPUTempC)
+			d.handleCommand(ctx, ack.GetCommand())
 		}
 	}
 }
@@ -281,6 +287,47 @@ func (d *Daemon) triggerReconnect() {
 	case d.reconnect <- struct{}{}:
 	default:
 	}
+}
+
+// handleCommand parses a job command from the heartbeat and, if it is new,
+// launches the inference worker for this node's role.
+func (d *Daemon) handleCommand(ctx context.Context, raw string) {
+	if strings.TrimSpace(raw) == "" {
+		return
+	}
+	var cmd worker.Command
+	if err := json.Unmarshal([]byte(raw), &cmd); err != nil {
+		d.log("WARN", "Ignoring an unreadable job command")
+		return
+	}
+	if cmd.JobID == "" {
+		return
+	}
+
+	d.mu.Lock()
+	if cmd.JobID == d.lastJobID {
+		d.mu.Unlock()
+		return
+	}
+	d.lastJobID = cmd.JobID
+	host := coordinatorHost(d.cfg.CoordinatorURL)
+	d.mu.Unlock()
+
+	go d.runJob(ctx, cmd, host)
+}
+
+func (d *Daemon) runJob(ctx context.Context, cmd worker.Command, host string) {
+	d.log("INFO", "Received LLM task "+cmd.JobID+" as the "+cmd.Role+" node")
+	if err := worker.Launch(ctx, cmd, host, d.log); err != nil {
+		d.PushError("ERROR", "LLM task "+cmd.JobID+" failed: "+err.Error())
+	}
+}
+
+func coordinatorHost(coordinatorURL string) string {
+	if host, _, err := net.SplitHostPort(coordinatorURL); err == nil {
+		return host
+	}
+	return coordinatorURL
 }
 
 // PushError records an issue locally and forwards it to the Coordinator issues

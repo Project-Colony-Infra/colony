@@ -62,3 +62,18 @@ export interface NodeError {
   message: string;
   ts: string;
 }
+
+export interface Job {
+  id: string;
+  colony_id: string;
+  model: string;
+  prompt: string;
+  engine: string;
+  primary_node_id: string;
+  secondary_node_id: string;
+  status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
+  result: string;
+  error: string;
+  created_at: string;
+  updated_at: string;
+}

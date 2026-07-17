@@ -1,0 +1,16 @@
+import { NextResponse } from "next/server";
+import { isAuthenticated } from "@/lib/auth";
+import { postJSON } from "@/lib/coordinator";
+
+export async function POST(req: Request, { params }: { params: { id: string } }) {
+  if (!isAuthenticated()) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const body = await req.json().catch(() => null);
+  if (!body) return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  try {
+    const res = await postJSON(`/api/v1/colonies/${params.id}/deploy-llm`, body);
+    const data = await res.json().catch(() => ({}));
+    return NextResponse.json(data, { status: res.status });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 502 });
+  }
+}

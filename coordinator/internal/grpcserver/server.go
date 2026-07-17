@@ -15,6 +15,7 @@ import (
 
 	"github.com/projectcolony/colony/coordinator/internal/db"
 	"github.com/projectcolony/colony/coordinator/internal/model"
+	"github.com/projectcolony/colony/coordinator/internal/orchestrator"
 	"github.com/projectcolony/colony/coordinator/internal/state"
 	colonyv1 "github.com/projectcolony/colony/coordinator/proto"
 )
@@ -24,12 +25,13 @@ type Server struct {
 	colonyv1.UnimplementedNodeServiceServer
 	store             *db.DB
 	cache             *state.Cache
+	orch              *orchestrator.Manager
 	heartbeatInterval time.Duration
 }
 
 // New builds a gRPC server handler.
-func New(store *db.DB, cache *state.Cache, heartbeatInterval time.Duration) *Server {
-	return &Server{store: store, cache: cache, heartbeatInterval: heartbeatInterval}
+func New(store *db.DB, cache *state.Cache, orch *orchestrator.Manager, heartbeatInterval time.Duration) *Server {
+	return &Server{store: store, cache: cache, orch: orch, heartbeatInterval: heartbeatInterval}
 }
 
 // Register onboards a node, assigns an id, and returns the active colonies.
@@ -125,9 +127,14 @@ func (s *Server) Heartbeat(stream colonyv1.NodeService_HeartbeatServer) error {
 		}
 
 		r := s.cache.RankOf(nodeID)
+		command := ""
+		if s.orch != nil {
+			command = s.orch.TakeCommand(nodeID)
+		}
 		if err := stream.Send(&colonyv1.HeartbeatResponse{
 			Status:            "ACK",
 			AssignedColonyId:  colonyID,
+			Command:           command,
 			Rank:              int32(r.Rank),
 			ActiveNodes:       int32(r.ActiveNodes),
 			ContributionScore: r.Score,

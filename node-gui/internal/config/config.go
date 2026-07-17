@@ -34,13 +34,18 @@ type Config struct {
 
 var writeMu sync.Mutex
 
-// Dir returns the ~/.colony directory, creating it if needed.
+// Dir returns the node's config directory, creating it if needed. It defaults to
+// ~/.colony, but COLONY_HOME overrides it so several nodes can run on one machine
+// without changing HOME (which would hide the user's Python packages).
 func Dir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	dir := os.Getenv("COLONY_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(home, ".colony")
 	}
-	dir := filepath.Join(home, ".colony")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

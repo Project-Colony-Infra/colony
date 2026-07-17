@@ -17,6 +17,7 @@ import (
 
 	"github.com/projectcolony/colony/coordinator/internal/db"
 	"github.com/projectcolony/colony/coordinator/internal/model"
+	"github.com/projectcolony/colony/coordinator/internal/orchestrator"
 	"github.com/projectcolony/colony/coordinator/internal/state"
 )
 
@@ -24,11 +25,12 @@ import (
 type Server struct {
 	store *db.DB
 	cache *state.Cache
+	orch  *orchestrator.Manager
 }
 
 // New builds a REST server.
-func New(store *db.DB, cache *state.Cache) *Server {
-	return &Server{store: store, cache: cache}
+func New(store *db.DB, cache *state.Cache, orch *orchestrator.Manager) *Server {
+	return &Server{store: store, cache: cache, orch: orch}
 }
 
 // Router returns the configured HTTP handler.
@@ -44,6 +46,11 @@ func (s *Server) Router() http.Handler {
 
 	r.Get("/healthz", s.handleHealth)
 
+	// The relay is a raw WebSocket upgrade used during the LLM test.
+	if s.orch != nil {
+		r.Get("/relay", s.orch.ServeRelay)
+	}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/nodes", s.handleListNodes)
 		r.Get("/nodes/{id}", s.handleGetNode)
@@ -52,7 +59,10 @@ func (s *Server) Router() http.Handler {
 		r.Get("/colonies", s.handleListColonies)
 		r.Post("/colonies", s.handleCreateColony)
 		r.Delete("/colonies/{id}", s.handleDeleteColony)
+		r.Post("/colonies/{id}/deploy-llm", s.handleDeployLLM)
 		r.Get("/errors", s.handleListErrors)
+		r.Get("/jobs", s.handleListJobs)
+		r.Get("/jobs/{id}", s.handleGetJob)
 	})
 
 	return r
@@ -181,6 +191,78 @@ func (s *Server) handleDeleteColony(w http.ResponseWriter, r *http.Request) {
 	s.cache.ReleaseColony(id)
 	log.Printf("rest: deleted colony %s", id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type deployLLMRequest struct {
+	Prompt       string `json:"prompt"`
+	Model        string `json:"model"`
+	Engine       string `json:"engine"`
+	MaxNewTokens int    `json:"max_new_tokens"`
+}
+
+func (s *Server) handleDeployLLM(w http.ResponseWriter, r *http.Request) {
+	if s.orch == nil {
+		writeError(w, http.StatusServiceUnavailable, "orchestrator is not available")
+		return
+	}
+	colonyID := chi.URLParam(r, "id")
+
+	var req deployLLMRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	if req.Prompt == "" {
+		writeError(w, http.StatusBadRequest, "a prompt is required")
+		return
+	}
+
+	// Pick the first two reachable nodes in the colony.
+	var members []model.Node
+	for _, n := range s.cache.List() {
+		if n.ColonyID == colonyID && (n.Status == model.StatusOnline || n.Status == model.StatusBusy) {
+			members = append(members, n)
+		}
+	}
+	if len(members) < 2 {
+		writeError(w, http.StatusBadRequest, "the colony needs at least two online nodes for the split inference test")
+		return
+	}
+
+	modelName := req.Model
+	if modelName == "" {
+		modelName = "mock-3b"
+	}
+	engine := req.Engine
+	if engine == "" {
+		engine = "mock"
+	}
+
+	job := s.orch.CreateJob(colonyID, modelName, req.Prompt, engine, members[0].ID, members[1].ID, req.MaxNewTokens)
+	log.Printf("rest: deployed LLM job %s to colony %s (primary %s, secondary %s)", job.ID, colonyID, members[0].Name, members[1].Name)
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
+	if s.orch == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.orch.Jobs())
+}
+
+func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	if s.orch == nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	job, ok := s.orch.Job(chi.URLParam(r, "id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) handleListErrors(w http.ResponseWriter, r *http.Request) {

@@ -1,14 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api, usePoll } from "@/lib/client";
 import { Card, StatusBadge, Banner } from "@/components/ui";
-import type { Colony, Node } from "@/lib/types";
+import type { Colony, Job, Node } from "@/lib/types";
 
 export default function ColoniesPage() {
   const { data: colonies, error } = usePoll<Colony[]>("/api/colonies", 3000);
   const { data: nodes } = usePoll<Node[]>("/api/nodes", 3000);
   const [showCreate, setShowCreate] = useState(false);
+  const [deployFor, setDeployFor] = useState<Colony | null>(null);
 
   const nameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -49,12 +51,20 @@ export default function ColoniesPage() {
               key={c.id}
               title={c.name}
               action={
-                <button
-                  onClick={() => remove(c.id)}
-                  className="rounded border border-colony-indigo px-2 py-1 text-xs text-colony-indigo hover:bg-colony-indigo hover:text-colony-cloud"
-                >
-                  Delete
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setDeployFor(c)}
+                    className="rounded bg-colony-core px-2 py-1 text-xs font-medium text-colony-cloud hover:bg-colony-deep"
+                  >
+                    Deploy LLM
+                  </button>
+                  <button
+                    onClick={() => remove(c.id)}
+                    className="rounded border border-colony-indigo px-2 py-1 text-xs text-colony-indigo hover:bg-colony-indigo hover:text-colony-cloud"
+                  >
+                    Delete
+                  </button>
+                </div>
               }
             >
               <p className="mb-2 font-mono text-xs text-colony-slate">{c.id}</p>
@@ -77,6 +87,78 @@ export default function ColoniesPage() {
           onClose={() => setShowCreate(false)}
         />
       )}
+
+      {deployFor && <DeployLLMModal colony={deployFor} onClose={() => setDeployFor(null)} />}
+    </div>
+  );
+}
+
+function DeployLLMModal({ colony, onClose }: { colony: Colony; onClose: () => void }) {
+  const router = useRouter();
+  const [prompt, setPrompt] = useState("");
+  const [engine, setEngine] = useState("mock");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const deploy = async () => {
+    if (!prompt.trim()) {
+      setErr("Enter a prompt.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const job = await api<Job>(`/api/colonies/${colony.id}/deploy-llm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim(), engine }),
+      });
+      router.push(`/jobs/${job.id}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not deploy the job");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-colony-navy/60 px-4">
+      <div className="w-full max-w-lg rounded-xl border border-colony-mist bg-colony-nearwhite p-6">
+        <h2 className="mb-1 text-lg font-semibold text-colony-navy">Deploy LLM to {colony.name}</h2>
+        <p className="mb-4 text-xs text-colony-slate">
+          The model splits across two nodes in this colony. The primary runs the lower layers and relays activation tensors through the Coordinator to the secondary.
+        </p>
+        <label className="mb-1 block text-sm text-colony-slate">Prompt</label>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={3}
+          placeholder="Write a haiku about the ocean"
+          className="mb-4 w-full rounded border border-colony-softblue bg-colony-lightblue px-3 py-2 text-sm outline-none focus:border-colony-ice"
+        />
+        <label className="mb-1 block text-sm text-colony-slate">Engine</label>
+        <select
+          value={engine}
+          onChange={(e) => setEngine(e.target.value)}
+          className="mb-4 w-full rounded border border-colony-softblue bg-colony-lightblue px-3 py-2 text-sm outline-none focus:border-colony-ice"
+        >
+          <option value="mock">mock (no download, proves the relay)</option>
+          <option value="real">real (needs a model on the nodes)</option>
+        </select>
+        {err && <p className="mb-3 text-sm text-colony-indigo">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border border-colony-mist px-4 py-2 text-sm text-colony-slate hover:text-colony-charcoal">
+            Cancel
+          </button>
+          <button
+            onClick={deploy}
+            disabled={busy}
+            className="rounded bg-colony-core px-4 py-2 text-sm font-medium text-colony-cloud hover:bg-colony-deep disabled:opacity-60"
+          >
+            {busy ? "Deploying..." : "Deploy"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

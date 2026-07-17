@@ -17,6 +17,7 @@ import (
 	"github.com/projectcolony/colony/coordinator/internal/config"
 	"github.com/projectcolony/colony/coordinator/internal/db"
 	"github.com/projectcolony/colony/coordinator/internal/grpcserver"
+	"github.com/projectcolony/colony/coordinator/internal/orchestrator"
 	"github.com/projectcolony/colony/coordinator/internal/rest"
 	"github.com/projectcolony/colony/coordinator/internal/state"
 	colonyv1 "github.com/projectcolony/colony/coordinator/proto"
@@ -49,9 +50,12 @@ func main() {
 	reaper := state.NewReaper(cache, store, cfg.OfflineAfter, cfg.ReaperInterval)
 	go reaper.Run(ctx)
 
+	// Orchestrator for the LLM test. Nodes reach the relay on the HTTP port.
+	orch := orchestrator.NewManager(cfg.HTTPPort, "/relay")
+
 	// gRPC server for nodes.
 	grpcSrv := grpc.NewServer()
-	colonyv1.RegisterNodeServiceServer(grpcSrv, grpcserver.New(store, cache, cfg.HeartbeatInterval))
+	colonyv1.RegisterNodeServiceServer(grpcSrv, grpcserver.New(store, cache, orch, cfg.HeartbeatInterval))
 
 	grpcLis, err := net.Listen("tcp", ":"+cfg.GRPCPort)
 	if err != nil {
@@ -67,7 +71,7 @@ func main() {
 	// REST server for the admin dashboard.
 	httpSrv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
-		Handler:           rest.New(store, cache).Router(),
+		Handler:           rest.New(store, cache, orch).Router(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
