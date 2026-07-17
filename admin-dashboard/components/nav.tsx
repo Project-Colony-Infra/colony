@@ -7,6 +7,7 @@ const links = [
   { href: "/", label: "Fleet" },
   { href: "/nodes", label: "Nodes" },
   { href: "/colonies", label: "Colonies" },
+  { href: "/playground", label: "Playground" },
   { href: "/activity", label: "Activity" },
   { href: "/issues", label: "Issues" },
 ];
