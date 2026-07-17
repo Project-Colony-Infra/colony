@@ -39,11 +39,23 @@ docker compose up --build
 
 The Coordinator listens on port 8080 and the Admin dashboard on port 3000.
 
-Contributors install the Node GUI on their own machine from the packaged installer. See `docs/` for the beta guide.
+## Download and getting started
+
+Contributors download the node app for their operating system from the
+[Releases page](https://github.com/Project-Colony-Infra/colony/releases) and run
+it. See the [getting started guide](docs/getting-started.md) for contributors and
+operators, and the [Playground guide](docs/playground.md) for running the split
+inference test.
 
 ## The killer test
 
-The point of v0.1 is one flow. An operator selects a colony, clicks Deploy LLM, and types a prompt. The first node runs the lower half of the model and sends its intermediate result through the Coordinator to a second node, which finishes the work and returns the generated text to the dashboard. If that works across a few machines behind different networks, the core idea is proven.
+The point of v0.1 is one flow. An operator opens the **Playground**, picks a colony,
+chooses a preset or types a prompt, and runs it. The first node runs the lower half
+of a small model and relays its intermediate result through the Coordinator to a
+second node, which finishes the work and returns the generated text to the
+dashboard. If that works across a few machines behind different networks, the core
+idea is proven. You watch the pipeline, the result, and each node's contribution
+live.
 
 ## License
 
