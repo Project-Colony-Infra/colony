@@ -17,6 +17,11 @@ service NodeService {
 
   // ReportError pushes a node side error into the Coordinator issues feed.
   rpc ReportError(ReportErrorRequest) returns (ReportErrorResponse);
+
+  // SetOffline lets a node tell the Coordinator it is going offline on purpose
+  // (the operator paused contribution), so the fleet reflects it at once instead
+  // of waiting for the reaper to notice the missing heartbeats.
+  rpc SetOffline(SetOfflineRequest) returns (SetOfflineResponse);
 }
 
 // Total physical resources on a machine.
@@ -54,6 +59,11 @@ message RegisterRequest {
   // reuses it so reconnects update the same node instead of creating a new one.
   // When empty, the Coordinator assigns a fresh id.
   string node_id = 6;
+  // Stable hardware fingerprint of the machine. The Coordinator uses it to
+  // recognise the same device even if its stored id was lost, so one machine
+  // never shows up as two nodes. The Coordinator returns the canonical id in the
+  // response for the node to adopt.
+  string fingerprint = 7;
 }
 
 message ColonySummary {
@@ -95,5 +105,14 @@ message ReportErrorRequest {
 }
 
 message ReportErrorResponse {
+  bool ok = 1;
+}
+
+message SetOfflineRequest {
+  string node_id = 1;
+  string reason = 2; // short human reason, for example "paused by operator"
+}
+
+message SetOfflineResponse {
   bool ok = 1;
 }

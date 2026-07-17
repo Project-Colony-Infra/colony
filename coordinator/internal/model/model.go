@@ -64,18 +64,39 @@ type Node struct {
 	CreatedAt   time.Time   `json:"created_at"`
 	Utilization Utilization `json:"utilization"`
 	Score       float64     `json:"contribution_score"`
+	// ComputeUnits is the normalized single number that folds this node's donated
+	// CPU, RAM, and GPU into one comparable metric, so a CPU heavy machine and a
+	// GPU heavy machine add to the same colony pool. Unlike Score it is not zeroed
+	// when offline, so the UI can still show what the node pledges.
+	ComputeUnits float64 `json:"compute_units"`
+	// Fingerprint is a stable hardware identity used only to dedupe the same
+	// physical machine. It is never exposed over the REST API.
+	Fingerprint string `json:"-"`
 }
 
-// ContributionScore is a simple donated capacity score, weighted toward GPU
-// memory. Offline nodes score zero so the leaderboard rewards being available.
-// Formula follows roadmap_v2.md section 2.2 in spirit: capacity times uptime.
+// Compute unit weights. One CPU core is the base unit; RAM is lighter per GB and
+// GPU memory is heavier, reflecting its scarcity and value for inference. These
+// are the single normalization for a heterogeneous colony (see blueprint_v2 2.2).
+const (
+	cpuUnitWeight = 1.0
+	ramUnitWeight = 0.5
+	gpuUnitWeight = 1.5
+)
+
+// WeightedCapacity folds the donated resources into normalized compute units.
+func (n Node) WeightedCapacity() float64 {
+	return float64(n.Allocated.CPUCores)*cpuUnitWeight +
+		float64(n.Allocated.RAMGB)*ramUnitWeight +
+		float64(n.Allocated.GPUMemory)*gpuUnitWeight
+}
+
+// ContributionScore is the capacity that counts toward the leaderboard. Offline
+// nodes score zero so the ranking rewards being available.
 func (n Node) ContributionScore() float64 {
 	if n.Status == StatusOffline {
 		return 0
 	}
-	return float64(n.Allocated.CPUCores)*1.0 +
-		float64(n.Allocated.RAMGB)*0.5 +
-		float64(n.Allocated.GPUMemory)*1.5
+	return n.WeightedCapacity()
 }
 
 // Colony is a logical group of nodes that behaves as one supercomputer.
@@ -96,6 +117,25 @@ type NodeError struct {
 	TS      time.Time `json:"ts"`
 }
 
+// Event categories for the full activity feed.
+const (
+	CategoryNode   = "node"
+	CategoryColony = "colony"
+	CategoryJob    = "job"
+	CategorySystem = "system"
+)
+
+// Event is a single entry in the full activity log shown on the admin dashboard.
+type Event struct {
+	ID       int64     `json:"id"`
+	TS       time.Time `json:"ts"`
+	Level    string    `json:"level"`
+	Category string    `json:"category"`
+	NodeID   string    `json:"node_id"`
+	NodeName string    `json:"node_name"`
+	Message  string    `json:"message"`
+}
+
 // Stats are the fleet totals shown on the admin overview.
 type Stats struct {
 	TotalNodes    int `json:"total_nodes"`
@@ -105,4 +145,11 @@ type Stats struct {
 	TotalCPUCores int `json:"total_cpu_cores"`
 	TotalRAMGB    int `json:"total_ram_gb"`
 	TotalGPUs     int `json:"total_gpus"`
+	// Composition of the online fleet: how the single compute pool is made up of
+	// CPU heavy and GPU bearing machines, and the donated GPU memory behind it.
+	TotalComputeUnits float64 `json:"total_compute_units"`
+	TotalGPUMemoryGB  int     `json:"total_gpu_memory_gb"`
+	GPUNodes          int     `json:"gpu_nodes"`
+	CPUOnlyNodes      int     `json:"cpu_only_nodes"`
+	ActiveColonies    int     `json:"active_colonies"`
 }

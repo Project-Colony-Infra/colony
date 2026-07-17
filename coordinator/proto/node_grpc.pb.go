@@ -22,6 +22,7 @@ const (
 	NodeService_Register_FullMethodName    = "/colony.v1.NodeService/Register"
 	NodeService_Heartbeat_FullMethodName   = "/colony.v1.NodeService/Heartbeat"
 	NodeService_ReportError_FullMethodName = "/colony.v1.NodeService/ReportError"
+	NodeService_SetOffline_FullMethodName  = "/colony.v1.NodeService/SetOffline"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -39,6 +40,10 @@ type NodeServiceClient interface {
 	Heartbeat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HeartbeatRequest, HeartbeatResponse], error)
 	// ReportError pushes a node side error into the Coordinator issues feed.
 	ReportError(ctx context.Context, in *ReportErrorRequest, opts ...grpc.CallOption) (*ReportErrorResponse, error)
+	// SetOffline lets a node tell the Coordinator it is going offline on purpose
+	// (the operator paused contribution), so the fleet reflects it at once instead
+	// of waiting for the reaper to notice the missing heartbeats.
+	SetOffline(ctx context.Context, in *SetOfflineRequest, opts ...grpc.CallOption) (*SetOfflineResponse, error)
 }
 
 type nodeServiceClient struct {
@@ -82,6 +87,16 @@ func (c *nodeServiceClient) ReportError(ctx context.Context, in *ReportErrorRequ
 	return out, nil
 }
 
+func (c *nodeServiceClient) SetOffline(ctx context.Context, in *SetOfflineRequest, opts ...grpc.CallOption) (*SetOfflineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetOfflineResponse)
+	err := c.cc.Invoke(ctx, NodeService_SetOffline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
@@ -97,6 +112,10 @@ type NodeServiceServer interface {
 	Heartbeat(grpc.BidiStreamingServer[HeartbeatRequest, HeartbeatResponse]) error
 	// ReportError pushes a node side error into the Coordinator issues feed.
 	ReportError(context.Context, *ReportErrorRequest) (*ReportErrorResponse, error)
+	// SetOffline lets a node tell the Coordinator it is going offline on purpose
+	// (the operator paused contribution), so the fleet reflects it at once instead
+	// of waiting for the reaper to notice the missing heartbeats.
+	SetOffline(context.Context, *SetOfflineRequest) (*SetOfflineResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -115,6 +134,9 @@ func (UnimplementedNodeServiceServer) Heartbeat(grpc.BidiStreamingServer[Heartbe
 }
 func (UnimplementedNodeServiceServer) ReportError(context.Context, *ReportErrorRequest) (*ReportErrorResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReportError not implemented")
+}
+func (UnimplementedNodeServiceServer) SetOffline(context.Context, *SetOfflineRequest) (*SetOfflineResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetOffline not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -180,6 +202,24 @@ func _NodeService_ReportError_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_SetOffline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetOfflineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).SetOffline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_SetOffline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).SetOffline(ctx, req.(*SetOfflineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -194,6 +234,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportError",
 			Handler:    _NodeService_ReportError_Handler,
+		},
+		{
+			MethodName: "SetOffline",
+			Handler:    _NodeService_SetOffline_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

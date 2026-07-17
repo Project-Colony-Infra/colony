@@ -38,7 +38,53 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 
+	if err := migrate(sqlDB); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+
 	return &DB{sql: sqlDB}, nil
+}
+
+// migrate applies small additive changes to databases created before a column
+// existed. CREATE TABLE IF NOT EXISTS never alters an existing table, so new
+// columns are added here. Adding an existing column is a no-op we swallow.
+func migrate(sqlDB *sql.DB) error {
+	addColumns := []struct{ table, column, ddl string }{
+		{"nodes", "fingerprint", "ALTER TABLE nodes ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, c := range addColumns {
+		if has, err := columnExists(sqlDB, c.table, c.column); err != nil {
+			return err
+		} else if has {
+			continue
+		}
+		if _, err := sqlDB.Exec(c.ddl); err != nil {
+			return fmt.Errorf("add %s.%s: %w", c.table, c.column, err)
+		}
+	}
+	return nil
+}
+
+func columnExists(sqlDB *sql.DB, table, column string) (bool, error) {
+	rows, err := sqlDB.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // Close closes the underlying handle.

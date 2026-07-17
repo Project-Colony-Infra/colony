@@ -16,8 +16,8 @@ func (d *DB) UpsertNode(n model.Node) error {
 			id, name, os, arch,
 			cpu_cores, ram_gb, gpu_model, gpu_memory_gb, disk_gb,
 			alloc_cpu_cores, alloc_ram_gb, alloc_gpu_memory_gb, alloc_bandwidth_mbps,
-			status, colony_id, last_seen
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			status, colony_id, last_seen, fingerprint
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			os = excluded.os,
@@ -32,16 +32,36 @@ func (d *DB) UpsertNode(n model.Node) error {
 			alloc_gpu_memory_gb = excluded.alloc_gpu_memory_gb,
 			alloc_bandwidth_mbps = excluded.alloc_bandwidth_mbps,
 			status = excluded.status,
-			last_seen = excluded.last_seen`,
+			last_seen = excluded.last_seen,
+			fingerprint = excluded.fingerprint`,
 		n.ID, n.Name, n.OS, n.Arch,
 		n.Resources.CPUCores, n.Resources.RAMGB, n.Resources.GPUModel, n.Resources.GPUMemory, n.Resources.DiskGB,
 		n.Allocated.CPUCores, n.Allocated.RAMGB, n.Allocated.GPUMemory, n.Allocated.BandwidthMbps,
-		n.Status, nullString(n.ColonyID), n.LastSeen,
+		n.Status, nullString(n.ColonyID), n.LastSeen, n.Fingerprint,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert node: %w", err)
 	}
 	return nil
+}
+
+// FindNodeIDByFingerprint returns the id of the node with the given fingerprint,
+// or empty string if none. A blank fingerprint never matches.
+func (d *DB) FindNodeIDByFingerprint(fingerprint string) (string, error) {
+	if fingerprint == "" {
+		return "", nil
+	}
+	var id string
+	err := d.sql.QueryRow(
+		`SELECT id FROM nodes WHERE fingerprint = ? ORDER BY created_at ASC LIMIT 1`, fingerprint,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 // RecordHeartbeat updates the node's live state and appends a heartbeat row.
@@ -95,7 +115,7 @@ func (d *DB) ListNodes() ([]model.Node, error) {
 		SELECT id, name, os, arch,
 		       cpu_cores, ram_gb, gpu_model, gpu_memory_gb, disk_gb,
 		       alloc_cpu_cores, alloc_ram_gb, alloc_gpu_memory_gb, alloc_bandwidth_mbps,
-		       status, colony_id, last_seen, created_at
+		       status, colony_id, last_seen, created_at, fingerprint
 		FROM nodes
 		ORDER BY created_at ASC`)
 	if err != nil {
@@ -122,7 +142,7 @@ func scanNode(rows *sql.Rows) (model.Node, error) {
 		&n.ID, &n.Name, &n.OS, &n.Arch,
 		&n.Resources.CPUCores, &n.Resources.RAMGB, &n.Resources.GPUModel, &n.Resources.GPUMemory, &n.Resources.DiskGB,
 		&n.Allocated.CPUCores, &n.Allocated.RAMGB, &n.Allocated.GPUMemory, &n.Allocated.BandwidthMbps,
-		&n.Status, &colonyID, &lastSeen, &n.CreatedAt,
+		&n.Status, &colonyID, &lastSeen, &n.CreatedAt, &n.Fingerprint,
 	)
 	if err != nil {
 		return n, err
@@ -290,6 +310,41 @@ func (d *DB) ListErrors(limit int) ([]model.NodeError, error) {
 	for rows.Next() {
 		var e model.NodeError
 		if err := rows.Scan(&e.ID, &e.NodeID, &e.Level, &e.Message, &e.TS); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// InsertEvent appends an entry to the full activity log.
+func (d *DB) InsertEvent(e model.Event) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO events (ts, level, category, node_id, node_name, message) VALUES (?, ?, ?, ?, ?, ?)`,
+		e.TS, e.Level, e.Category, e.NodeID, e.NodeName, e.Message,
+	)
+	return err
+}
+
+// ListEvents returns the most recent activity entries, newest first.
+func (d *DB) ListEvents(limit int) ([]model.Event, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := d.sql.Query(
+		`SELECT id, ts, level, category, node_id, node_name, message
+		 FROM events ORDER BY ts DESC, id DESC LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []model.Event{}
+	for rows.Next() {
+		var e model.Event
+		if err := rows.Scan(&e.ID, &e.TS, &e.Level, &e.Category, &e.NodeID, &e.NodeName, &e.Message); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

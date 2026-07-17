@@ -50,6 +50,10 @@ func (r *Reaper) sweep(now time.Time) {
 		if err := r.store.InsertError(n.ID, model.LevelWarn, msg, now); err != nil {
 			log.Printf("reaper: record offline error for %s: %v", n.ID, err)
 		}
+		if err := r.store.InsertEvent(model.Event{TS: now, Level: model.LevelWarn, Category: model.CategoryNode,
+			NodeID: n.ID, NodeName: n.Name, Message: msg}); err != nil {
+			log.Printf("reaper: record offline event for %s: %v", n.ID, err)
+		}
 		log.Printf("reaper: %s", msg)
 	}
 }

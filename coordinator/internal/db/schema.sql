@@ -30,12 +30,17 @@ CREATE TABLE IF NOT EXISTS nodes (
     last_seen             TIMESTAMP,
     created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
+    -- Stable hardware fingerprint, used to recognise the same machine even if it
+    -- registers with a fresh id, so one device never appears as two nodes.
+    fingerprint           TEXT NOT NULL DEFAULT '',
+
     FOREIGN KEY (colony_id) REFERENCES colonies (id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_nodes_status    ON nodes (status);
-CREATE INDEX IF NOT EXISTS idx_nodes_colony    ON nodes (colony_id);
-CREATE INDEX IF NOT EXISTS idx_nodes_last_seen ON nodes (last_seen);
+CREATE INDEX IF NOT EXISTS idx_nodes_status      ON nodes (status);
+CREATE INDEX IF NOT EXISTS idx_nodes_colony      ON nodes (colony_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_last_seen   ON nodes (last_seen);
+CREATE INDEX IF NOT EXISTS idx_nodes_fingerprint ON nodes (fingerprint);
 
 CREATE TABLE IF NOT EXISTS heartbeats (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,3 +78,19 @@ CREATE TABLE IF NOT EXISTS errors (
 );
 
 CREATE INDEX IF NOT EXISTS idx_errors_ts ON errors (ts);
+
+-- Full activity log for the admin dashboard: registrations, online and offline
+-- transitions, colony create and delete, deploys, and errors. Unlike errors it
+-- has no node foreign key, so colony and system wide events are recorded too and
+-- history survives a node being removed.
+CREATE TABLE IF NOT EXISTS events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    level       TEXT NOT NULL DEFAULT 'INFO',
+    category    TEXT NOT NULL DEFAULT 'system',
+    node_id     TEXT NOT NULL DEFAULT '',
+    node_name   TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts);

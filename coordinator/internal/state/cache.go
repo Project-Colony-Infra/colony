@@ -49,6 +49,7 @@ func (c *Cache) Get(id string) (model.Node, bool) {
 	}
 	out := *n
 	out.Score = out.ContributionScore()
+	out.ComputeUnits = out.WeightedCapacity()
 	return out, true
 }
 
@@ -60,6 +61,7 @@ func (c *Cache) List() []model.Node {
 	for _, n := range c.nodes {
 		copyN := *n
 		copyN.Score = copyN.ContributionScore()
+		copyN.ComputeUnits = copyN.WeightedCapacity()
 		out = append(out, copyN)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -81,6 +83,20 @@ func (c *Cache) Touch(id string, u model.Utilization, ts time.Time) bool {
 	n.LastSeen = &ts
 	n.Utilization = u
 	return true
+}
+
+// SetOffline marks a single node offline immediately (used when a node reports
+// it is pausing on purpose). Returns the updated node and whether it was found
+// and was not already offline.
+func (c *Cache) SetOffline(id string) (model.Node, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n, ok := c.nodes[id]
+	if !ok || n.Status == model.StatusOffline {
+		return model.Node{}, false
+	}
+	n.Status = model.StatusOffline
+	return *n, true
 }
 
 // ColonyOf returns the colony id currently assigned to a node.

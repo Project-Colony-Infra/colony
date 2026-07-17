@@ -3,6 +3,7 @@ package rest
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sort"
@@ -61,6 +62,7 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/colonies/{id}", s.handleDeleteColony)
 		r.Post("/colonies/{id}/deploy-llm", s.handleDeployLLM)
 		r.Get("/errors", s.handleListErrors)
+		r.Get("/activity", s.handleListActivity)
 		r.Get("/jobs", s.handleListJobs)
 		r.Get("/jobs/{id}", s.handleGetJob)
 	})
@@ -98,14 +100,26 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		default:
 			stats.OfflineNodes++
 		}
-		// Available compute counts only nodes that are currently reachable.
+		// Available compute counts only nodes that are currently reachable. The
+		// composition splits that one pool into its CPU and GPU contributions so
+		// the operator sees how a heterogeneous fleet adds up.
 		if n.Status == model.StatusOnline || n.Status == model.StatusBusy {
 			stats.TotalCPUCores += n.Allocated.CPUCores
 			stats.TotalRAMGB += n.Allocated.RAMGB
+			stats.TotalComputeUnits += n.WeightedCapacity()
 			if strings.TrimSpace(n.Resources.GPUModel) != "" {
 				stats.TotalGPUs++
 			}
+			if n.Allocated.GPUMemory > 0 {
+				stats.GPUNodes++
+				stats.TotalGPUMemoryGB += n.Allocated.GPUMemory
+			} else {
+				stats.CPUOnlyNodes++
+			}
 		}
+	}
+	if colonies, err := s.store.ListColonies(); err == nil {
+		stats.ActiveColonies = len(colonies)
 	}
 	writeJSON(w, http.StatusOK, stats)
 }
@@ -169,7 +183,32 @@ func (s *Server) handleCreateColony(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cache.AssignColony(req.NodeIDs, colony.ID)
 	log.Printf("rest: created colony %q (%s) with %d nodes", colony.Name, colony.ID, len(req.NodeIDs))
+	s.logEvent(model.Event{TS: time.Now().UTC(), Level: model.LevelInfo, Category: model.CategoryColony,
+		Message: fmt.Sprintf("Colony %q created with %d node(s)", colony.Name, len(req.NodeIDs))})
 	writeJSON(w, http.StatusCreated, colony)
+}
+
+// logEvent appends to the full activity log, best effort.
+func (s *Server) logEvent(e model.Event) {
+	if err := s.store.InsertEvent(e); err != nil {
+		log.Printf("rest: event: %v", err)
+	}
+}
+
+func (s *Server) handleListActivity(w http.ResponseWriter, r *http.Request) {
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	events, err := s.store.ListEvents(limit)
+	if err != nil {
+		log.Printf("rest: list activity: %v", err)
+		writeError(w, http.StatusInternalServerError, "could not list activity")
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 func (s *Server) handleDeleteColony(w http.ResponseWriter, r *http.Request) {
@@ -190,6 +229,8 @@ func (s *Server) handleDeleteColony(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cache.ReleaseColony(id)
 	log.Printf("rest: deleted colony %s", id)
+	s.logEvent(model.Event{TS: time.Now().UTC(), Level: model.LevelInfo, Category: model.CategoryColony,
+		Message: "Colony deleted and its nodes released to idle"})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -241,6 +282,8 @@ func (s *Server) handleDeployLLM(w http.ResponseWriter, r *http.Request) {
 
 	job := s.orch.CreateJob(colonyID, modelName, req.Prompt, engine, members[0].ID, members[1].ID, req.MaxNewTokens)
 	log.Printf("rest: deployed LLM job %s to colony %s (primary %s, secondary %s)", job.ID, colonyID, members[0].Name, members[1].Name)
+	s.logEvent(model.Event{TS: time.Now().UTC(), Level: model.LevelInfo, Category: model.CategoryJob,
+		Message: fmt.Sprintf("Deployed %s across %s and %s (%s engine)", modelName, members[0].Name, members[1].Name, engine)})
 	writeJSON(w, http.StatusAccepted, job)
 }
 
