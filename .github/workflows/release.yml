@@ -52,9 +52,15 @@ jobs:
         working-directory: node-gui
         run: go mod tidy
 
+      # The webkit2_41 tag points cgo at webkit2gtk-4.1 (what current Ubuntu
+      # ships) instead of the old 4.0; it matches nothing on macOS or Windows,
+      # so it is safe across the matrix. Bindings are skipped because the
+      # frontend reads the local daemon on :9090 and imports no Wails bindings,
+      # and every root .go file is behind the desktop tag, which would otherwise
+      # make binding generation fail with "build constraints exclude all files".
       - name: Build the desktop app
         working-directory: node-gui
-        run: wails build -tags desktop -platform ${{ matrix.platform }} -o colony-node
+        run: wails build -tags "desktop,webkit2_41" -skipbindings -platform ${{ matrix.platform }} -o colony-node
 
       - uses: actions/upload-artifact@v4
         with:

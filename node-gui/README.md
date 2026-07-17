@@ -52,9 +52,18 @@ daemon.
 
 ```
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
-# Linux also needs the webkit2gtk and gtk3 development packages.
-wails build            # produces build/bin/colony-node
+# Linux also needs the webkit2gtk and gtk3 development packages, for example on
+# Ubuntu: sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev
+go mod tidy            # pulls in the Wails dependency (kept out of the lean headless build)
+wails build -tags "desktop,webkit2_41" -skipbindings   # produces build/bin/colony-node
 ```
+
+The `webkit2_41` tag points cgo at webkit2gtk-4.1 (what current Ubuntu ships)
+rather than the old 4.0; it matches nothing on macOS or Windows, so the same
+command works there. Bindings are skipped because the frontend reads the local
+daemon on :9090 and imports no Wails bindings, and every root .go file sits
+behind the desktop tag, which would otherwise fail binding generation. Use
+`wails dev -tags "desktop,webkit2_41"` to run it live.
 
 Cross platform installers (.exe, .dmg, .AppImage) are wired up in Phase 5.
 
