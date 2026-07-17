@@ -49,3 +49,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Go workspace (local dev only)
+go.work
+go.work.sum

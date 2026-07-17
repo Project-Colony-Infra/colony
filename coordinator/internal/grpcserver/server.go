@@ -39,9 +39,16 @@ func (s *Server) Register(ctx context.Context, req *colonyv1.RegisterRequest) (*
 		return nil, status.Error(codes.InvalidArgument, "node name is required")
 	}
 
+	// Reuse the node's stable id when it supplies one so reconnects update the
+	// same record. Otherwise assign a fresh id.
+	nodeID := strings.TrimSpace(req.GetNodeId())
+	if nodeID == "" {
+		nodeID = uuid.NewString()
+	}
+
 	now := time.Now().UTC()
 	node := model.Node{
-		ID:        uuid.NewString(),
+		ID:        nodeID,
 		Name:      name,
 		OS:        req.GetOs(),
 		Arch:      req.GetArch(),
@@ -52,15 +59,25 @@ func (s *Server) Register(ctx context.Context, req *colonyv1.RegisterRequest) (*
 		CreatedAt: now,
 	}
 
+	existed, err := s.store.NodeExists(node.ID)
+	if err != nil {
+		log.Printf("register: check existing node %q: %v", name, err)
+	}
+	// Keep any existing colony membership across a reconnect. UpsertNode leaves
+	// colony_id untouched in the database, so mirror that in the cache.
+	node.ColonyID = s.cache.ColonyOf(node.ID)
 	if err := s.store.UpsertNode(node); err != nil {
 		log.Printf("register: upsert node %q: %v", name, err)
 		return nil, status.Error(codes.Internal, "could not register node")
 	}
 	s.cache.Upsert(node)
-	if err := s.store.InsertError(node.ID, model.LevelInfo, "Node registered with the Coordinator", now); err != nil {
-		log.Printf("register: record event for %q: %v", name, err)
+	if !existed {
+		// Only announce genuinely new nodes so reconnects do not spam the feed.
+		if err := s.store.InsertError(node.ID, model.LevelInfo, "Node registered with the Coordinator", now); err != nil {
+			log.Printf("register: record event for %q: %v", name, err)
+		}
 	}
-	log.Printf("register: %s (%s) id=%s", node.Name, node.OS, node.ID)
+	log.Printf("register: %s (%s) id=%s new=%v", node.Name, node.OS, node.ID, !existed)
 
 	colonies, err := s.store.ListColonies()
 	if err != nil {

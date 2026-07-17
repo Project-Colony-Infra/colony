@@ -85,6 +85,19 @@ func main() {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("http shutdown: %v", err)
 	}
-	grpcSrv.GracefulStop()
+
+	// GracefulStop blocks until open RPCs finish, but the heartbeat streams never
+	// end on their own. Give it a short grace period, then force close so the
+	// process actually exits and connected nodes fail over to a restarted server.
+	stopped := make(chan struct{})
+	go func() {
+		grpcSrv.GracefulStop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(3 * time.Second):
+		grpcSrv.Stop()
+	}
 	log.Print("stopped cleanly")
 }

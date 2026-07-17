@@ -2,23 +2,66 @@
 
 The contributor app. A cross platform desktop application built with Wails v2, a Go backend daemon plus a React and TypeScript frontend. It compiles to a single native binary per operating system.
 
-## Responsibilities
+## Design
 
-- Run a background daemon that survives the window being closed and lives in the system tray.
-- Detect hardware: OS, CPU, RAM, disk, and GPU (NVIDIA and Apple).
-- Let the user cap donated CPU cores, RAM, GPU memory, and bandwidth with sliders.
-- Register with the Coordinator and stream a heartbeat every 5 seconds.
-- Show a live dashboard: status, usage gauges, contribution score and ranking, and an activity log.
-- Reconnect with exponential backoff and never crash when the Coordinator is unreachable.
+The engine and the window are separate on purpose. All the real work lives in a
+headless daemon (`internal/daemon`) that detects hardware, talks to the
+Coordinator, and serves live data on `localhost:9090`. The Wails window is a thin
+viewer that reads that same local API, so the frontend runs unchanged in the
+desktop webview or in a plain browser during development. The daemon also runs on
+its own with no window, which is the roadmap's headless fallback.
 
-## Stack
+## Layout
 
-Wails v2, Go, React, TypeScript, Tailwind, shadcn/ui, gopsutil for resource detection.
+```
+cmd/noded/            headless daemon runner (no window, fully testable)
+internal/config/      load and save ~/.colony/config.json, stable node id
+internal/resources/   hardware detection (gopsutil) and GPU (nvidia-smi, system_profiler)
+internal/client/      gRPC client to the Coordinator
+internal/daemon/      the engine: connect, register, heartbeat, reconnect, state
+internal/localapi/    local dashboard API on port 9090
+main.go, app.go       Wails desktop wrapper (build tag: desktop)
+wails.json            Wails project config
+frontend/             React, TypeScript, Tailwind dashboard
+```
 
-## Config
+## Run the daemon (headless, works anywhere)
 
-User settings persist to `~/.colony/config.json`. The frontend reads live data from a local API on `localhost:9090`.
+```
+go run ./cmd/noded -coordinator localhost:8080
+```
+
+Then open `http://localhost:9090/api/state` to see live node state, or point the
+frontend at it with `cd frontend && npm install && npm run dev`.
+
+Local API:
+
+```
+GET  /health        liveness
+GET  /api/state     live node state, specs, utilization, activity log
+GET  /api/config    current settings
+POST /api/config    update allocation and settings, applied immediately
+```
+
+## Build the desktop app
+
+The desktop binary needs a webview (webkit2gtk on Linux, WebView2 on Windows, the
+system WebView on macOS) and the Wails CLI. It is built with the `desktop` tag,
+which is why `go build ./...` on its own skips the window and only builds the
+daemon.
+
+```
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+# Linux also needs the webkit2gtk and gtk3 development packages.
+wails build            # produces build/bin/colony-node
+```
+
+Cross platform installers (.exe, .dmg, .AppImage) are wired up in Phase 5.
 
 ## Status
 
-Scaffold only. Implementation lands in Phase 1 and Phase 2.
+Phase 1 complete for the engine: hardware detection (including GPU), config with a
+stable node id, registration, heartbeat streaming, reconnect with backoff, and the
+local dashboard API, all verified live against the Coordinator. The Wails window
+and system tray build on a machine with a webview. The rich analytics dashboard
+(gauges, ranking, richer logs) is Phase 2.

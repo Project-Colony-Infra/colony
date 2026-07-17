@@ -50,6 +50,10 @@ message RegisterRequest {
   string arch = 3;
   Resources resources = 4;
   Allocation allocated = 5;
+  // Stable id the node persists across restarts. When set, the Coordinator
+  // reuses it so reconnects update the same node instead of creating a new one.
+  // When empty, the Coordinator assigns a fresh id.
+  string node_id = 6;
 }
 
 message ColonySummary {
