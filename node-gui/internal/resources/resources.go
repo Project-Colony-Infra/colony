@@ -6,6 +6,8 @@ package resources
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -68,6 +70,23 @@ func Detect() Specs {
 	s.GPUMemoryGB = gpuMem
 
 	return s
+}
+
+// Fingerprint returns a stable identifier for this physical machine, derived
+// from the host machine id, hostname, and architecture. The Coordinator uses it
+// to recognise the same device across reinstalls so it never appears as two
+// nodes. It is hashed so the raw machine id never leaves the box.
+func Fingerprint() string {
+	parts := []string{runtime.GOARCH}
+	if info, err := host.Info(); err == nil {
+		parts = append(parts, info.HostID, info.Hostname)
+	}
+	joined := strings.TrimSpace(strings.Join(parts, "|"))
+	if joined == "" || joined == runtime.GOARCH {
+		return "" // nothing stable to fingerprint; let the Coordinator use the node id
+	}
+	sum := sha256.Sum256([]byte(joined))
+	return hex.EncodeToString(sum[:16])
 }
 
 // Sample takes a live utilization reading. The CPU percentage is measured over

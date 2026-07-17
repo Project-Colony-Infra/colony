@@ -1,13 +1,36 @@
 import { useEffect, useState } from "react";
-import { RadialBar, RadialBarChart, PolarAngleAxis, ResponsiveContainer } from "recharts";
+import {
+  RadialBar,
+  RadialBarChart,
+  PolarAngleAxis,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 import { fetchState, fetchConfig, saveConfig } from "./api";
 import type { Allocation, Config, State } from "./types";
 
-type Tab = "overview" | "analytics" | "resources" | "activity";
+type Tab = "overview" | "analytics" | "settings" | "activity";
+
+// Sample is one polled reading kept for the utilization history chart.
+export interface Sample {
+  time: string;
+  cpu: number;
+  ram: number;
+  gpu: number;
+  temp: number;
+}
+
+const HISTORY_LEN = 45; // about 90s at the 2s poll interval
 
 export default function App() {
   const [state, setState] = useState<State | null>(null);
   const [reachable, setReachable] = useState(true);
+  const [history, setHistory] = useState<Sample[]>([]);
   const [tab, setTab] = useState<Tab>("overview");
 
   useEffect(() => {
@@ -15,10 +38,20 @@ export default function App() {
     const poll = async () => {
       try {
         const s = await fetchState();
-        if (active) {
-          setState(s);
-          setReachable(true);
-        }
+        if (!active) return;
+        setState(s);
+        setReachable(true);
+        setHistory((prev) => {
+          const pct = (used: number, total: number) => (total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0);
+          const sample: Sample = {
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+            cpu: pct(s.utilization.cpu_used, s.specs.cpu_cores),
+            ram: pct(s.utilization.ram_used_gb, s.specs.ram_gb),
+            gpu: pct(s.utilization.gpu_mem_used_gb, s.specs.gpu_memory_gb),
+            temp: Math.round(s.utilization.gpu_temp_c),
+          };
+          return [...prev, sample].slice(-HISTORY_LEN);
+        });
       } catch {
         if (active) setReachable(false);
       }
@@ -39,8 +72,8 @@ export default function App() {
         {!reachable && <Banner text="Cannot reach the local node service on port 9090. Is the node running?" />}
         {reachable && !state && <Banner text="Starting up..." />}
         {state && tab === "overview" && <Overview state={state} />}
-        {state && tab === "analytics" && <Analytics state={state} />}
-        {state && tab === "resources" && <Resources state={state} />}
+        {state && tab === "analytics" && <Analytics state={state} history={history} />}
+        {state && tab === "settings" && <Settings state={state} />}
         {state && tab === "activity" && <Activity state={state} />}
       </main>
     </div>
@@ -49,6 +82,7 @@ export default function App() {
 
 function Header({ state, reachable }: { state: State | null; reachable: boolean }) {
   const online = reachable && state?.status === "ONLINE";
+  const paused = reachable && state?.available === false;
   return (
     <header className="bg-colony-navy px-6 py-4">
       <div className="mx-auto flex max-w-5xl items-center justify-between">
@@ -64,20 +98,32 @@ function Header({ state, reachable }: { state: State | null; reachable: boolean 
             <div className="text-sm font-medium text-colony-cloud">{state?.node_name ?? "..."}</div>
             <div className="font-mono text-xs text-colony-mist">{state?.coordinator_url ?? ""}</div>
           </div>
-          <StatusPill online={online} connection={state?.connection ?? "DISCONNECTED"} />
+          <StatusPill online={online} paused={paused} connection={state?.connection ?? "DISCONNECTED"} />
         </div>
       </div>
     </header>
   );
 }
 
-function StatusPill({ online, connection }: { online: boolean; connection: string }) {
-  const label = online ? "Online" : connection === "CONNECTING" ? "Connecting" : "Offline";
+function StatusPill({ online, paused, connection }: { online: boolean; paused: boolean; connection: string }) {
+  // The palette carries no red or green, so status is icon plus label plus the
+  // active/offline blues (see branding.md), never color alone.
+  const label = paused ? "Paused" : online ? "Online" : connection === "CONNECTING" ? "Connecting" : "Offline";
   const cls = online ? "bg-colony-ice text-colony-midnight" : "bg-colony-mist text-colony-navy";
+  const dot = online ? "bg-colony-deep" : "bg-colony-slate";
   return (
     <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${cls}`}>
-      <span className={`h-2 w-2 rounded-full ${online ? "bg-colony-deep" : "bg-colony-slate"}`} />
+      {paused ? <PauseGlyph /> : <span className={`h-2 w-2 rounded-full ${dot}`} />}
       {label}
+    </span>
+  );
+}
+
+function PauseGlyph() {
+  return (
+    <span className="inline-flex gap-[2px]">
+      <span className="h-2 w-[3px] rounded-sm bg-colony-slate" />
+      <span className="h-2 w-[3px] rounded-sm bg-colony-slate" />
     </span>
   );
 }
@@ -86,7 +132,7 @@ function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const items: { key: Tab; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "analytics", label: "Analytics" },
-    { key: "resources", label: "Resources" },
+    { key: "settings", label: "Settings" },
     { key: "activity", label: "Activity" },
   ];
   return (
@@ -110,46 +156,167 @@ function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   );
 }
 
+// Compute unit weights mirror the Coordinator (blueprint_v2 section 2.2): a CPU
+// core is the base unit, RAM is lighter per GB, GPU memory heavier. A node's
+// donation folds into this one normalized number, so a CPU heavy machine and a
+// GPU heavy machine add to the same colony pool. There is no separate CPU or GPU
+// track: whatever mix you contribute converts into the same units.
+const UNIT_CPU = 1.0;
+const UNIT_RAM = 0.5;
+const UNIT_GPU = 1.5;
+
+function computeUnits(a: Allocation): number {
+  return a.cpu_cores * UNIT_CPU + a.ram_gb * UNIT_RAM + a.gpu_memory_gb * UNIT_GPU;
+}
+
+function ContributionUnits({ alloc }: { alloc: Allocation }) {
+  const total = computeUnits(alloc);
+  const cpuU = alloc.cpu_cores * UNIT_CPU;
+  const ramU = alloc.ram_gb * UNIT_RAM;
+  const gpuU = alloc.gpu_memory_gb * UNIT_GPU;
+  return (
+    <div className="mt-4 rounded border border-colony-mist bg-colony-lightblue p-3">
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm font-medium text-colony-charcoal">Your compute units</span>
+        <span className="font-mono text-lg font-semibold text-colony-core">{total.toFixed(1)}</span>
+      </div>
+      <p className="mt-1 text-xs text-colony-slate">
+        CPU, memory, and GPU fold into one number, so it does not matter whether you lean CPU or GPU. Here that is{" "}
+        {alloc.cpu_cores} cores ({cpuU.toFixed(1)}) + {alloc.ram_gb} GB RAM ({ramU.toFixed(1)}) + {alloc.gpu_memory_gb} GB GPU (
+        {gpuU.toFixed(1)}). Every node adds its units to the same colony pool.
+      </p>
+    </div>
+  );
+}
+
 function Overview({ state }: { state: State }) {
   const u = state.utilization;
   const a = state.allocation;
+  const s = state.specs;
+  const hasGPU = s.gpu_memory_gb > 0;
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Card title="Node">
-        <Row label="Name" value={state.node_name} />
-        <Row label="Identity" value={state.node_id} mono />
-        <Row label="Connection" value={state.connection} />
-        <Row label="Colony" value={state.colony_id || "Not in a colony"} mono={!!state.colony_id} />
-      </Card>
-      <Card title="Machine">
-        <Row label="System" value={state.specs.os} />
-        <Row label="CPU" value={`${state.specs.cpu_cores} cores`} />
-        <Row label="Memory" value={`${state.specs.ram_gb} GB`} />
-        <Row label="GPU" value={state.specs.gpu_model || "None detected"} />
-      </Card>
-      <Card title="Live usage">
-        <Meter label="CPU" used={u.cpu_used} total={a.cpu_cores || state.specs.cpu_cores} unit="cores" />
-        <Meter label="Memory" used={u.ram_used_gb} total={a.ram_gb || state.specs.ram_gb} unit="GB" />
-        {state.specs.gpu_memory_gb > 0 && (
-          <Meter label="GPU memory" used={u.gpu_mem_used_gb} total={a.gpu_memory_gb || state.specs.gpu_memory_gb} unit="GB" />
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card title="Node">
+          <Row label="Name" value={state.node_name} />
+          <Row label="Identity" value={state.node_id} mono />
+          <Row label="Connection" value={state.connection} />
+          <Row label="Colony" value={state.colony_id || "Not in a colony"} mono={!!state.colony_id} />
+        </Card>
+        <Card title="Machine">
+          <Row label="System" value={s.os} />
+          <Row label="CPU" value={`${s.cpu_cores} cores`} />
+          <Row label="Memory" value={`${s.ram_gb} GB`} />
+          <Row label="GPU" value={s.gpu_model || "None detected"} />
+        </Card>
+      </div>
+
+      {/* Each resource is a conservation balance: in use + contributed + free
+          always adds up to the machine total, so what the machine consumes and
+          what is offered to the Colony can never together exceed what exists. */}
+      <Card title="Resource balance">
+        <p className="text-sm text-colony-slate">
+          For every resource, what your machine is using, what you contribute to the Colony, and the free room left
+          always add up to your total. You can never contribute more than is free.
+        </p>
+        <BalanceLegend />
+        <div className="mt-4 space-y-4">
+          <BalanceRow label="CPU" used={u.cpu_used} contribution={a.cpu_cores} total={s.cpu_cores} unit="cores" />
+          <BalanceRow label="Memory" used={u.ram_used_gb} contribution={a.ram_gb} total={s.ram_gb} unit="GB" />
+          {hasGPU && (
+            <BalanceRow label="GPU memory" used={u.gpu_mem_used_gb} contribution={a.gpu_memory_gb} total={s.gpu_memory_gb} unit="GB" />
+          )}
+        </div>
+        {u.gpu_temp_c > 0 && (
+          <div className="mt-4 border-t border-colony-mist pt-3">
+            <Row label="GPU temperature" value={`${u.gpu_temp_c} C`} />
+          </div>
         )}
-      </Card>
-      <Card title="Donated">
-        <Row label="CPU cores" value={String(a.cpu_cores)} />
-        <Row label="Memory" value={`${a.ram_gb} GB`} />
-        <Row label="GPU memory" value={`${a.gpu_memory_gb} GB`} />
-        <Row label="Bandwidth" value={`${a.bandwidth_mbps} Mbps`} />
       </Card>
     </div>
   );
 }
 
-function Analytics({ state }: { state: State }) {
+function BalanceLegend() {
+  return (
+    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-colony-slate">
+      <Swatch className="bg-colony-core" label="In use by your machine" />
+      <Swatch className="bg-colony-ice" label="Contributed to the Colony" />
+      <Swatch className="bg-colony-mist" label="Free" />
+    </div>
+  );
+}
+
+function Swatch({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-2.5 w-2.5 rounded-sm ${className}`} />
+      {label}
+    </span>
+  );
+}
+
+// BalanceRow renders one resource as a single full width bar split into the part
+// in use, the part contributed, and the free remainder. The three always sum to
+// the total. If usage plus contribution somehow exceeds the total (for example
+// usage climbed after the pledge was set), the bar fills completely, free reads
+// zero, and an over capacity note appears so the imbalance is never hidden.
+function BalanceRow({
+  label,
+  used,
+  contribution,
+  total,
+  unit,
+}: {
+  label: string;
+  used: number;
+  contribution: number;
+  total: number;
+  unit: string;
+}) {
+  const committed = used + contribution;
+  const over = committed > total + 0.001;
+  const free = Math.max(0, total - committed);
+  const denom = over ? committed : total;
+  const usedPct = denom > 0 ? (used / denom) * 100 : 0;
+  const contribPct = denom > 0 ? (contribution / denom) * 100 : 0;
+  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+  return (
+    <div className="text-sm">
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <span className="font-medium text-colony-charcoal">{label}</span>
+        <span className="font-mono text-xs text-colony-slate">
+          {fmt(used)} in use &middot; {contribution} contributed &middot; {fmt(free)} free &middot; {total} {unit}
+        </span>
+      </div>
+      <div className="flex h-3 w-full overflow-hidden rounded bg-colony-mist">
+        <div className="h-3 bg-colony-core" style={{ width: `${usedPct}%` }} />
+        <div className="h-3 bg-colony-ice" style={{ width: `${contribPct}%` }} />
+      </div>
+      {over && (
+        <div className="mt-1 flex items-center gap-1.5 text-xs text-colony-slate">
+          <WarnGlyph />
+          Your machine is using more than the free room left after your pledge. Lower your contribution in Settings.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WarnGlyph() {
+  return (
+    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-colony-warmbeige font-mono text-[10px] font-bold text-colony-navy">
+      !
+    </span>
+  );
+}
+
+function Analytics({ state, history }: { state: State; history: Sample[] }) {
   const r = state.ranking;
   const u = state.utilization;
-  const a = state.allocation;
-  const cpuTotal = a.cpu_cores || state.specs.cpu_cores;
-  const ramTotal = a.ram_gb || state.specs.ram_gb;
+  const s = state.specs;
+  const hasGPU = s.gpu_memory_gb > 0;
+  const tempWarn = u.gpu_temp_c >= 90;
 
   const vsAverage =
     r.average_score > 0 ? Math.round(((r.contribution_score - r.average_score) / r.average_score) * 100) : 0;
@@ -162,45 +329,139 @@ function Analytics({ state }: { state: State }) {
           ? `Your contribution is ${vsAverage}% above the colony average.`
           : `Your contribution is ${Math.abs(vsAverage)}% below the colony average.`;
 
+  const peakCpu = history.reduce((m, h) => Math.max(m, h.cpu), 0);
+  const peakRam = history.reduce((m, h) => Math.max(m, h.ram), 0);
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card title="Your rank">
-          <div className="flex items-baseline gap-2">
-            <span className="text-4xl font-semibold text-colony-core">
-              {r.rank > 0 ? `#${r.rank}` : "--"}
-            </span>
-            <span className="text-sm text-colony-slate">of {r.active_nodes} active nodes</span>
-          </div>
-          <p className="mt-2 text-sm text-colony-slate">{comparison}</p>
-        </Card>
-        <Card title="Contribution score">
-          <div className="text-4xl font-semibold text-colony-deep">{r.contribution_score.toFixed(0)}</div>
-          <p className="mt-2 text-sm text-colony-slate">Colony average {r.average_score.toFixed(0)}</p>
-        </Card>
-        <Card title="Standing">
-          <ScoreBar score={r.contribution_score} average={r.average_score} />
-        </Card>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard label="Your rank" value={r.rank > 0 ? `#${r.rank}` : "--"} sub={`of ${r.active_nodes} active nodes`} accent="text-colony-core" />
+        <StatCard label="Compute units" value={r.contribution_score.toFixed(0)} sub={`colony average ${r.average_score.toFixed(0)}`} accent="text-colony-deep" />
+        <StatCard label="Fleet nodes" value={String(r.active_nodes)} sub="online right now" accent="text-colony-core" />
+        {hasGPU ? (
+          <StatCard
+            label="GPU temperature"
+            value={u.gpu_temp_c > 0 ? `${Math.round(u.gpu_temp_c)} C` : "--"}
+            sub={u.gpu_temp_c > 0 ? (tempWarn ? "Running hot" : "Normal") : "no reading"}
+            accent="text-colony-deep"
+            warn={tempWarn}
+          />
+        ) : (
+          <StatCard label="GPU" value="None" sub="not detected" accent="text-colony-slate" />
+        )}
       </div>
 
+      <Card title="Utilization over time">
+        <p className="text-sm text-colony-slate">
+          The share of your machine in use, sampled every two seconds. Peak so far: CPU {peakCpu}%, memory {peakRam}%.
+        </p>
+        <div className="mt-2">
+          <ChartLegend hasGPU={hasGPU} />
+        </div>
+        <UtilizationChart history={history} hasGPU={hasGPU} />
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card title="CPU">
-          <Gauge used={u.cpu_used} total={cpuTotal} unit="cores" />
+        <Card title="CPU in use">
+          <Gauge used={u.cpu_used} total={s.cpu_cores} unit="cores" />
         </Card>
-        <Card title="Memory">
-          <Gauge used={u.ram_used_gb} total={ramTotal} unit="GB" />
+        <Card title="Memory in use">
+          <Gauge used={u.ram_used_gb} total={s.ram_gb} unit="GB" />
         </Card>
-        {state.specs.gpu_memory_gb > 0 ? (
-          <Card title="GPU memory">
-            <Gauge used={u.gpu_mem_used_gb} total={a.gpu_memory_gb || state.specs.gpu_memory_gb} unit="GB" />
+        {hasGPU ? (
+          <Card title="GPU memory in use">
+            <Gauge used={u.gpu_mem_used_gb} total={s.gpu_memory_gb} unit="GB" />
           </Card>
         ) : (
           <Card title="GPU">
-            <p className="text-sm text-colony-slate">No GPU is being donated.</p>
+            <p className="text-sm text-colony-slate">No GPU detected on this machine.</p>
           </Card>
         )}
       </div>
+
+      <Card title="Standing versus the colony">
+        <p className="mb-3 text-sm text-colony-slate">{comparison}</p>
+        <ScoreBar score={r.contribution_score} average={r.average_score} />
+      </Card>
     </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  accent,
+  warn,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  accent: string;
+  warn?: boolean;
+}) {
+  return (
+    <section className="rounded-md border border-colony-mist bg-colony-nearwhite p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-colony-slate">{label}</div>
+      <div className={`mt-1 flex items-center gap-2 text-3xl font-semibold ${accent}`}>
+        <span>{value}</span>
+        {warn && <WarnGlyph />}
+      </div>
+      <div className="mt-1 text-xs text-colony-slate">{sub}</div>
+    </section>
+  );
+}
+
+function ChartLegend({ hasGPU }: { hasGPU: boolean }) {
+  return (
+    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-colony-slate">
+      <Swatch className="bg-colony-core" label="CPU" />
+      <Swatch className="bg-colony-ice" label="Memory" />
+      {hasGPU && <Swatch className="bg-colony-vibrant" label="GPU memory" />}
+    </div>
+  );
+}
+
+function UtilizationChart({ history, hasGPU }: { history: Sample[]; hasGPU: boolean }) {
+  if (history.length < 2) {
+    return (
+      <div className="flex h-[220px] items-center justify-center text-sm text-colony-slate">
+        Collecting live samples...
+      </div>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <AreaChart data={history} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+        <defs>
+          <linearGradient id="gCpu" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#255DC0" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="#255DC0" stopOpacity={0.04} />
+          </linearGradient>
+          <linearGradient id="gRam" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#80A8EC" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="#80A8EC" stopOpacity={0.04} />
+          </linearGradient>
+          <linearGradient id="gGpu" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#4B83E5" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="#4B83E5" stopOpacity={0.04} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid stroke="#C8CCD9" strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#51504A" }} interval="preserveStartEnd" minTickGap={44} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#51504A" }} tickFormatter={(v) => `${v}%`} width={40} />
+        <Tooltip
+          contentStyle={{ background: "#EDEFF0", border: "1px solid #C8CCD9", borderRadius: 6, fontSize: 12 }}
+          labelStyle={{ color: "#51504A" }}
+          formatter={(v: number, n: string) => [`${v}%`, n]}
+        />
+        <Area type="monotone" dataKey="cpu" name="CPU" stroke="#255DC0" strokeWidth={2} fill="url(#gCpu)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="ram" name="Memory" stroke="#80A8EC" strokeWidth={2} fill="url(#gRam)" isAnimationActive={false} />
+        {hasGPU && (
+          <Area type="monotone" dataKey="gpu" name="GPU memory" stroke="#4B83E5" strokeWidth={2} fill="url(#gGpu)" isAnimationActive={false} />
+        )}
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }
 
@@ -250,58 +511,210 @@ function LabeledBar({ label, value, max, color }: { label: string; value: number
   );
 }
 
-function Resources({ state }: { state: State }) {
-  const [alloc, setAlloc] = useState<Allocation>(state.allocation);
+function Settings({ state }: { state: State }) {
+  const [cfg, setCfg] = useState<Config | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [savingAvail, setSavingAvail] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
-  const set = (key: keyof Allocation, value: number) => {
-    setAlloc((prev) => ({ ...prev, [key]: value }));
+  useEffect(() => {
+    let active = true;
+    fetchConfig()
+      .then((c) => active && setCfg(c))
+      .catch(() => active && setLoadError(true));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (loadError) {
+    return <Banner text="Could not load the node settings from the local service on port 9090." />;
+  }
+  if (!cfg) {
+    return <Banner text="Loading settings..." />;
+  }
+
+  // Free capacity is the total minus what the machine is using right now, so a
+  // pledge can never exceed what is actually available. Floored to whole units
+  // to keep the sliders on integer steps and guarantee usage + pledge <= total.
+  const u = state.utilization;
+  const freeCPU = Math.max(0, Math.floor(state.specs.cpu_cores - u.cpu_used));
+  const freeRAM = Math.max(0, Math.floor(state.specs.ram_gb - u.ram_used_gb));
+  const freeGPU = Math.max(0, Math.floor(state.specs.gpu_memory_gb - u.gpu_mem_used_gb));
+
+  const editAlloc = (key: keyof Allocation, value: number) => {
+    setCfg({ ...cfg, allocation: { ...cfg.allocation, [key]: value } });
     setSaved(false);
+  };
+
+  // Availability is the make-me-available switch and applies immediately, so a
+  // contributor can pause without hunting for a Save button.
+  const toggleAvailable = async () => {
+    const next = { ...cfg, available: !cfg.available };
+    setCfg(next);
+    setSavingAvail(true);
+    setError("");
+    try {
+      setCfg(await saveConfig(next));
+    } catch {
+      setCfg({ ...next, available: !next.available });
+      setError("Could not apply that change. Is the node running?");
+    } finally {
+      setSavingAvail(false);
+    }
   };
 
   const save = async () => {
     setSaving(true);
+    setError("");
     try {
-      const cfg: Config = await fetchConfig();
-      cfg.allocation = alloc;
-      await saveConfig(cfg);
+      setCfg(await saveConfig(cfg));
       setSaved(true);
     } catch {
-      setSaved(false);
+      setError("Could not save. Is the node running?");
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Card title="Detected hardware">
-        <Row label="Operating system" value={state.specs.os} />
-        <Row label="Architecture" value={state.specs.arch} />
-        <Row label="CPU cores" value={String(state.specs.cpu_cores)} />
-        <Row label="Memory" value={`${state.specs.ram_gb} GB`} />
-        <Row label="Disk" value={`${state.specs.disk_gb} GB`} />
-        <Row label="GPU" value={state.specs.gpu_model || "None detected"} />
-        {state.specs.gpu_memory_gb > 0 && <Row label="GPU memory" value={`${state.specs.gpu_memory_gb} GB`} />}
+    <div className="space-y-4">
+      <Card title="Availability">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium text-colony-charcoal">
+              {cfg.available ? "This machine is available to the Colony" : "This machine is paused"}
+            </div>
+            <p className="mt-1 max-w-md text-sm text-colony-slate">
+              {cfg.available
+                ? "The node is registered and contributing the resources you set below. Turn this off to stop contributing without quitting the app."
+                : "The node has stopped contributing and shows as offline to the Colony. Turn this on to make yourself available again."}
+            </p>
+          </div>
+          <Toggle on={cfg.available} busy={savingAvail} onChange={toggleAvailable} label="Available to the Colony" />
+        </div>
       </Card>
-      <Card title="What you donate">
-        <Slider label="CPU cores" value={alloc.cpu_cores} max={state.specs.cpu_cores} unit="cores" onChange={(v) => set("cpu_cores", v)} />
-        <Slider label="Memory" value={alloc.ram_gb} max={state.specs.ram_gb} unit="GB" onChange={(v) => set("ram_gb", v)} />
-        <Slider label="GPU memory" value={alloc.gpu_memory_gb} max={state.specs.gpu_memory_gb} unit="GB" onChange={(v) => set("gpu_memory_gb", v)} />
-        <Slider label="Bandwidth" value={alloc.bandwidth_mbps} max={1000} unit="Mbps" onChange={(v) => set("bandwidth_mbps", v)} />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card title="Identity and connection">
+          <Field label="Node name">
+            <input
+              type="text"
+              value={cfg.node_name}
+              onChange={(e) => {
+                setCfg({ ...cfg, node_name: e.target.value });
+                setSaved(false);
+              }}
+              className="w-full rounded border border-colony-mist bg-colony-cloud px-3 py-2 text-sm text-colony-charcoal outline-none focus:border-colony-core"
+            />
+          </Field>
+          <Field label="Coordinator address">
+            <input
+              type="text"
+              value={cfg.coordinator_url}
+              spellCheck={false}
+              onChange={(e) => {
+                setCfg({ ...cfg, coordinator_url: e.target.value });
+                setSaved(false);
+              }}
+              className="w-full rounded border border-colony-mist bg-colony-cloud px-3 py-2 font-mono text-sm text-colony-charcoal outline-none focus:border-colony-core"
+            />
+          </Field>
+          <div className="pt-1">
+            <Row label="Node identity" value={cfg.node_id} mono />
+          </div>
+        </Card>
+
+        <Card title="Detected hardware">
+          <Row label="Operating system" value={state.specs.os} />
+          <Row label="Architecture" value={state.specs.arch} />
+          <Row label="CPU cores" value={String(state.specs.cpu_cores)} />
+          <Row label="Memory" value={`${state.specs.ram_gb} GB`} />
+          <Row label="Disk" value={`${state.specs.disk_gb} GB`} />
+          <Row label="GPU" value={state.specs.gpu_model || "None detected"} />
+          {state.specs.gpu_memory_gb > 0 && <Row label="GPU memory" value={`${state.specs.gpu_memory_gb} GB`} />}
+        </Card>
+      </div>
+
+      <Card title="What you contribute">
+        <p className="mb-3 text-sm text-colony-slate">
+          Each slider stops at what is free right now, your total minus what your machine is already using, so your
+          contribution and your own usage always stay in balance. Zero means you contribute none of that resource.
+        </p>
+        <Slider
+          label="CPU cores"
+          value={cfg.allocation.cpu_cores}
+          max={freeCPU}
+          unit="cores"
+          note={`${freeCPU} of ${state.specs.cpu_cores} free now`}
+          onChange={(v) => editAlloc("cpu_cores", v)}
+        />
+        <Slider
+          label="Memory"
+          value={cfg.allocation.ram_gb}
+          max={freeRAM}
+          unit="GB"
+          note={`${freeRAM} of ${state.specs.ram_gb} free now`}
+          onChange={(v) => editAlloc("ram_gb", v)}
+        />
+        {state.specs.gpu_memory_gb > 0 && (
+          <Slider
+            label="GPU memory"
+            value={cfg.allocation.gpu_memory_gb}
+            max={freeGPU}
+            unit="GB"
+            note={`${freeGPU} of ${state.specs.gpu_memory_gb} free now`}
+            onChange={(v) => editAlloc("gpu_memory_gb", v)}
+          />
+        )}
+        <Slider label="Bandwidth" value={cfg.allocation.bandwidth_mbps} max={1000} unit="Mbps" onChange={(v) => editAlloc("bandwidth_mbps", v)} />
+        <ContributionUnits alloc={cfg.allocation} />
         <div className="mt-4 flex items-center gap-3">
           <button
             onClick={save}
             disabled={saving}
             className="rounded bg-colony-core px-4 py-2 text-sm font-medium text-colony-cloud hover:bg-colony-deep disabled:opacity-60"
           >
-            {saving ? "Saving..." : "Save allocation"}
+            {saving ? "Saving..." : "Save settings"}
           </button>
           {saved && <span className="text-sm text-colony-slate">Saved and applied.</span>}
+          {error && <span className="text-sm text-colony-slate">{error}</span>}
         </div>
       </Card>
     </div>
+  );
+}
+
+function Toggle({ on, busy, onChange, label }: { on: boolean; busy: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={busy}
+      onClick={onChange}
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
+        on ? "bg-colony-core" : "bg-colony-mist"
+      }`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-colony-cloud transition-transform ${
+          on ? "translate-x-6" : "translate-x-1"
+        }`}
+      />
+    </button>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block text-sm">
+      <span className="mb-1 block text-colony-slate">{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -372,41 +785,29 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   );
 }
 
-function Meter({ label, used, total, unit }: { label: string; used: number; total: number; unit: string }) {
-  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
-  return (
-    <div className="text-sm">
-      <div className="mb-1 flex justify-between">
-        <span className="text-colony-slate">{label}</span>
-        <span className="font-mono text-xs text-colony-charcoal">
-          {used.toFixed(1)} / {total} {unit}
-        </span>
-      </div>
-      <div className="h-2 w-full rounded bg-colony-mist">
-        <div className="h-2 rounded bg-colony-core" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function Slider({
   label,
   value,
   max,
   unit,
+  note,
   onChange,
 }: {
   label: string;
   value: number;
   max: number;
   unit: string;
+  note?: string;
   onChange: (v: number) => void;
 }) {
   const safeMax = Math.max(0, max);
   return (
     <div className="text-sm">
-      <div className="mb-1 flex justify-between">
-        <span className="text-colony-slate">{label}</span>
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <span className="text-colony-slate">
+          {label}
+          {note && <span className="ml-2 text-xs text-colony-slate">({note})</span>}
+        </span>
         <span className="font-mono text-xs text-colony-charcoal">
           {value} / {safeMax} {unit}
         </span>

@@ -52,13 +52,15 @@ type Colony struct {
 	Name string
 }
 
-// Register onboards this node and returns the assigned id.
-func (c *Client) Register(ctx context.Context, cfg config.Config, specs resources.Specs) (RegisterResult, error) {
+// Register onboards this node and returns the assigned id. The fingerprint lets
+// the Coordinator dedupe the same physical machine.
+func (c *Client) Register(ctx context.Context, cfg config.Config, specs resources.Specs, fingerprint string) (RegisterResult, error) {
 	resp, err := c.svc.Register(ctx, &colonyv1.RegisterRequest{
-		NodeId: cfg.NodeID,
-		Name:   cfg.NodeName,
-		Os:     specs.OS,
-		Arch:   specs.Arch,
+		NodeId:      cfg.NodeID,
+		Name:        cfg.NodeName,
+		Os:          specs.OS,
+		Arch:        specs.Arch,
+		Fingerprint: fingerprint,
 		Resources: &colonyv1.Resources{
 			CpuCores:    int32(specs.CPUCores),
 			RamGb:       int32(specs.RAMGB),
@@ -123,6 +125,16 @@ func (c *Client) ReportError(ctx context.Context, nodeID, level, message string)
 		Level:     level,
 		Message:   message,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+	return err
+}
+
+// SetOffline tells the Coordinator this node is going offline on purpose, so the
+// fleet reflects it immediately rather than waiting for the reaper.
+func (c *Client) SetOffline(ctx context.Context, nodeID, reason string) error {
+	_, err := c.svc.SetOffline(ctx, &colonyv1.SetOfflineRequest{
+		NodeId: nodeID,
+		Reason: reason,
 	})
 	return err
 }

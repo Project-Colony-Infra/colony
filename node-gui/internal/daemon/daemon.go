@@ -6,6 +6,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -23,6 +24,9 @@ const (
 	Connecting   = "CONNECTING"
 	Connected    = "CONNECTED"
 	Disconnected = "DISCONNECTED"
+	// Paused means the operator turned availability off, so the node is not
+	// contributing and is not trying to reach the Coordinator.
+	Paused = "PAUSED"
 )
 
 const (
@@ -53,6 +57,7 @@ type State struct {
 	NodeID         string                `json:"node_id"`
 	Connection     string                `json:"connection"`
 	Status         string                `json:"status"`
+	Available      bool                  `json:"available"`
 	ColonyID       string                `json:"colony_id"`
 	CoordinatorURL string                `json:"coordinator_url"`
 	Specs          resources.Specs       `json:"specs"`
@@ -67,6 +72,7 @@ type Daemon struct {
 	mu          sync.RWMutex
 	cfg         config.Config
 	specs       resources.Specs
+	fingerprint string
 	nodeID      string
 	connection  string
 	colonyID    string
@@ -83,18 +89,46 @@ type Daemon struct {
 // gpuWarnTempC is the GPU temperature above which the node warns the operator.
 const gpuWarnTempC = 90.0
 
-// New detects hardware and builds a daemon from the given config.
+// New detects hardware and builds a daemon from the given config. On the first
+// run it seeds a starting contribution of 20% of the machine so a new node
+// arrives with something to give rather than zeros the user must dial up.
 func New(cfg config.Config) *Daemon {
 	specs := resources.Detect()
+	seeded := false
+	if !cfg.Configured {
+		cfg.Allocation = defaultAllocation(specs)
+		cfg.Configured = true
+		seeded = true
+	}
 	cfg.Allocation = clampAllocation(cfg.Allocation, specs)
 	d := &Daemon{
-		cfg:        cfg,
-		specs:      specs,
-		connection: Disconnected,
-		reconnect:  make(chan struct{}, 1),
+		cfg:         cfg,
+		specs:       specs,
+		fingerprint: resources.Fingerprint(),
+		connection:  Disconnected,
+		reconnect:   make(chan struct{}, 1),
 	}
 	d.log("INFO", "Detected "+specs.OS+" with "+humanSpecs(specs))
+	if seeded {
+		if err := config.Save(cfg); err != nil {
+			d.log("WARN", "Could not save the starting allocation: "+err.Error())
+		} else {
+			d.log("INFO", "Seeded a starting contribution of 20% of this machine; adjust it in Settings")
+		}
+	}
 	return d
+}
+
+// defaultAllocation is the first run contribution: 20% of each detected resource,
+// and 200 Mbps (20% of the 1000 Mbps bandwidth range).
+func defaultAllocation(s resources.Specs) config.Allocation {
+	pct := func(total int) int { return int(math.Round(float64(total) * 0.2)) }
+	return config.Allocation{
+		CPUCores:      pct(s.CPUCores),
+		RAMGB:         pct(s.RAMGB),
+		GPUMemory:     pct(s.GPUMemoryGB),
+		BandwidthMbps: 200,
+	}
 }
 
 // Specs returns the detected hardware.
@@ -129,6 +163,7 @@ func (d *Daemon) Snapshot() State {
 		NodeID:         d.nodeID,
 		Connection:     d.connection,
 		Status:         status,
+		Available:      d.cfg.Available,
 		ColonyID:       d.colonyID,
 		CoordinatorURL: d.cfg.CoordinatorURL,
 		Specs:          d.specs,
@@ -156,24 +191,41 @@ func (d *Daemon) UpdateConfig(newCfg config.Config) error {
 	if err := config.Save(newCfg); err != nil {
 		return err
 	}
-	d.log("INFO", "Settings updated, reconnecting to apply the new allocation")
+	d.log("INFO", "Settings updated, applying the changes")
 	d.triggerReconnect()
 	return nil
 }
 
+// available reports whether the operator currently wants the node contributing.
+func (d *Daemon) available() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.cfg.Available
+}
+
 // Run drives the connect, register, and heartbeat lifecycle until ctx is done.
-// It never returns on transient errors, it backs off and retries.
+// It never returns on transient errors, it backs off and retries. When the
+// operator turns availability off, it parks in the Paused state and waits to be
+// woken by a config change rather than hammering the Coordinator.
 func (d *Daemon) Run(ctx context.Context) {
 	backoff := minBackoff
 	for {
 		if ctx.Err() != nil {
 			return
 		}
+		if !d.available() {
+			d.park(ctx)
+			backoff = minBackoff
+			continue
+		}
 		if d.connectOnce(ctx) {
 			backoff = minBackoff // a clean session resets the backoff
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		if !d.available() {
+			continue // turned off during the session, park without waiting out the backoff
 		}
 		select {
 		case <-ctx.Done():
@@ -182,6 +234,51 @@ func (d *Daemon) Run(ctx context.Context) {
 		case <-d.reconnect:
 		}
 		backoff = nextBackoff(backoff)
+	}
+}
+
+// notifyOffline tells the Coordinator this node is pausing on purpose so the
+// fleet reflects it at once instead of waiting out the reaper. Best effort: if
+// the Coordinator is unreachable the reaper still catches the silence.
+func (d *Daemon) notifyOffline() {
+	d.mu.RLock()
+	nodeID := d.nodeID
+	addr := d.cfg.CoordinatorURL
+	d.mu.RUnlock()
+	if nodeID == "" {
+		return
+	}
+	cli, err := client.Dial(addr)
+	if err != nil {
+		return
+	}
+	defer cli.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), registerTTL)
+	defer cancel()
+	if err := cli.SetOffline(ctx, nodeID, "paused by operator"); err != nil {
+		d.log("WARN", "Could not tell the Coordinator about the pause: "+err.Error())
+	}
+}
+
+// park holds the node in the Paused state until availability is turned back on
+// (a config change signals d.reconnect) or the context is cancelled. It tells the
+// Coordinator up front so the pause shows immediately.
+func (d *Daemon) park(ctx context.Context) {
+	d.notifyOffline()
+	d.setConnection(Paused)
+	d.log("INFO", "Paused: this machine is not available to the Colony")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.reconnect:
+			if d.available() {
+				d.log("INFO", "Resumed: making this machine available to the Colony")
+				return
+			}
+			// A config change that left the node unavailable (for example an
+			// allocation edit while paused); stay parked.
+		}
 	}
 }
 
@@ -210,12 +307,25 @@ func (d *Daemon) connectOnce(ctx context.Context) bool {
 	d.mu.Unlock()
 
 	regCtx, cancel := context.WithTimeout(ctx, registerTTL)
-	res, err := cli.Register(regCtx, cfg, d.Specs())
+	res, err := cli.Register(regCtx, cfg, d.Specs(), d.fingerprint)
 	cancel()
 	if err != nil {
 		d.log("ERROR", "Registration failed: "+err.Error())
 		d.setConnection(Disconnected)
 		return false
+	}
+
+	// Adopt the id the Coordinator settled on. It can differ from ours when the
+	// Coordinator recognised this machine by fingerprint and merged us onto the
+	// existing record, which is how one device avoids showing up twice.
+	if res.NodeID != "" && res.NodeID != cfg.NodeID {
+		d.mu.Lock()
+		d.cfg.NodeID = res.NodeID
+		newCfg := d.cfg
+		d.mu.Unlock()
+		if err := config.Save(newCfg); err != nil {
+			d.log("WARN", "Could not persist the Coordinator assigned id: "+err.Error())
+		}
 	}
 
 	d.mu.Lock()

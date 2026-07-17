@@ -38,8 +38,9 @@ export interface Ranking {
 export interface State {
   node_name: string;
   node_id: string;
-  connection: "CONNECTED" | "CONNECTING" | "DISCONNECTED";
+  connection: "CONNECTED" | "CONNECTING" | "DISCONNECTED" | "PAUSED";
   status: "ONLINE" | "OFFLINE";
+  available: boolean;
   colony_id: string;
   coordinator_url: string;
   specs: Specs;
@@ -54,6 +55,8 @@ export interface Config {
   node_name: string;
   coordinator_url: string;
   allocation: Allocation;
+  available: boolean;
+  configured: boolean;
   only_when_idle: boolean;
   auto_start: boolean;
 }

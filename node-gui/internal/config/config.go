@@ -28,8 +28,15 @@ type Config struct {
 	NodeName       string     `json:"node_name"`
 	CoordinatorURL string     `json:"coordinator_url"`
 	Allocation     Allocation `json:"allocation"`
-	OnlyWhenIdle   bool       `json:"only_when_idle"`
-	AutoStart      bool       `json:"auto_start"`
+	// Available is the operator's on/off switch: when false the node stops
+	// contributing and drops offline from the Colony until it is turned back on.
+	Available bool `json:"available"`
+	// Configured records that the starting allocation has been seeded. On the
+	// very first run it is false, so the daemon fills in a sensible 20% default
+	// instead of leaving everything at zero; after that the user's choices stand.
+	Configured   bool `json:"configured"`
+	OnlyWhenIdle bool `json:"only_when_idle"`
+	AutoStart    bool `json:"auto_start"`
 }
 
 var writeMu sync.Mutex
@@ -68,6 +75,8 @@ func Default() Config {
 		NodeName:       fmt.Sprintf("PC-%s", randomSuffix(6)),
 		CoordinatorURL: "localhost:8080",
 		Allocation:     Allocation{},
+		Available:      true,
+		Configured:     false,
 		OnlyWhenIdle:   false,
 		AutoStart:      false,
 	}
@@ -104,9 +113,28 @@ func Load() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
+	// A config written before a field existed omits it, so a missing bool would
+	// read as false. Detect the absent keys and apply the intended defaults so an
+	// upgrade does not silently pause an existing node or rename it.
+	var present map[string]json.RawMessage
+	_ = json.Unmarshal(data, &present)
+	rewrite := false
+	if _, ok := present["available"]; !ok {
+		cfg.Available = true
+		rewrite = true
+	}
+	// An existing config file has already been through the user's hands, so mark
+	// it configured to protect its allocation from the first run 20% seeding.
+	if _, ok := present["configured"]; !ok {
+		cfg.Configured = true
+		rewrite = true
+	}
 	// Backfill a stable id for configs written before it existed.
 	if cfg.NodeID == "" {
 		cfg.NodeID = NewID()
+		rewrite = true
+	}
+	if rewrite {
 		if err := Save(cfg); err != nil {
 			return cfg, err
 		}
