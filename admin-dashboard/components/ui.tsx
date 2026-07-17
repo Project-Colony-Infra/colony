@@ -39,6 +39,24 @@ export function LevelBadge({ level }: { level: string }) {
   return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}>{level}</span>;
 }
 
+export function CategoryChip({ category }: { category: string }) {
+  return (
+    <span className="rounded border border-colony-mist bg-colony-lightblue px-1.5 py-0.5 text-xs font-medium text-colony-slate">
+      {category}
+    </span>
+  );
+}
+
+// Swatch pairs a palette color square with a label for use in bar legends.
+export function Swatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-colony-slate">
+      <span className={`h-2.5 w-2.5 rounded-sm ${color}`} />
+      {label}
+    </span>
+  );
+}
+
 function label(status: string): string {
   return status.charAt(0) + status.slice(1).toLowerCase();
 }

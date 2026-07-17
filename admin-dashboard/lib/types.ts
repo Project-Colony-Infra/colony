@@ -35,6 +35,7 @@ export interface Node {
   created_at: string;
   utilization: Utilization;
   contribution_score: number;
+  compute_units: number;
 }
 
 export interface Colony {
@@ -53,6 +54,11 @@ export interface Stats {
   total_cpu_cores: number;
   total_ram_gb: number;
   total_gpus: number;
+  total_compute_units: number;
+  total_gpu_memory_gb: number;
+  gpu_nodes: number;
+  cpu_only_nodes: number;
+  active_colonies: number;
 }
 
 export interface NodeError {
@@ -61,6 +67,16 @@ export interface NodeError {
   level: "INFO" | "WARN" | "ERROR";
   message: string;
   ts: string;
+}
+
+export interface Event {
+  id: number;
+  ts: string;
+  level: "INFO" | "WARN" | "ERROR";
+  category: "node" | "colony" | "job" | "system";
+  node_id: string;
+  node_name: string;
+  message: string;
 }
 
 export interface Job {

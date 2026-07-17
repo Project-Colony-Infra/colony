@@ -6,7 +6,7 @@ import { usePoll } from "@/lib/client";
 import { Card, StatusBadge, Banner } from "@/components/ui";
 import type { Node } from "@/lib/types";
 
-type SortKey = "name" | "os" | "status" | "cpu" | "ram" | "gpu" | "last_seen";
+type SortKey = "name" | "os" | "status" | "cpu" | "ram" | "gpu" | "units" | "last_seen";
 
 export default function NodesPage() {
   const { data: nodes, error } = usePoll<Node[]>("/api/nodes", 3000);
@@ -60,6 +60,7 @@ export default function NodesPage() {
                 <Th onClick={() => toggleSort("cpu")} active={sort === "cpu"} asc={asc}>CPU</Th>
                 <Th onClick={() => toggleSort("ram")} active={sort === "ram"} asc={asc}>Memory</Th>
                 <Th onClick={() => toggleSort("gpu")} active={sort === "gpu"} asc={asc}>GPU</Th>
+                <Th onClick={() => toggleSort("units")} active={sort === "units"} asc={asc}>Compute units</Th>
                 <Th onClick={() => toggleSort("status")} active={sort === "status"} asc={asc}>Status</Th>
                 <Th onClick={() => toggleSort("last_seen")} active={sort === "last_seen"} asc={asc}>Last seen</Th>
               </tr>
@@ -76,13 +77,14 @@ export default function NodesPage() {
                   <td className="py-2 text-colony-charcoal">{n.allocated.cpu_cores} / {n.resources.cpu_cores}</td>
                   <td className="py-2 text-colony-charcoal">{n.allocated.ram_gb} / {n.resources.ram_gb} GB</td>
                   <td className="py-2 text-colony-charcoal">{n.resources.gpu_model || "None"}</td>
+                  <td className="py-2 text-colony-charcoal">{Math.round(n.compute_units)}</td>
                   <td className="py-2"><StatusBadge status={n.status} /></td>
                   <td className="py-2 text-colony-slate">{formatSeen(n.last_seen)}</td>
                 </tr>
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-colony-slate">No nodes match.</td>
+                  <td colSpan={8} className="py-6 text-center text-colony-slate">No nodes match.</td>
                 </tr>
               )}
             </tbody>
@@ -110,6 +112,7 @@ function compare(a: Node, b: Node, key: SortKey): number {
     case "cpu": return a.allocated.cpu_cores - b.allocated.cpu_cores;
     case "ram": return a.allocated.ram_gb - b.allocated.ram_gb;
     case "gpu": return a.resources.gpu_model.localeCompare(b.resources.gpu_model);
+    case "units": return a.compute_units - b.compute_units;
     case "last_seen": return (a.last_seen || "").localeCompare(b.last_seen || "");
   }
 }
