@@ -107,12 +107,26 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Stage release assets
+        # Each artifact holds one binary, but the node binaries are all named
+        # colony-node, so uploading them straight would collide on the asset name.
+        # Rename every file to its artifact directory name (keeping a .exe suffix)
+        # so each asset is unique and clearly labelled by platform.
+        run: |
+          mkdir -p dist
+          find artifacts -type f | while read -r f; do
+            dir=$(basename "$(dirname "$f")")
+            case "$f" in
+              *.exe) cp "$f" "dist/${dir}.exe" ;;
+              *)     cp "$f" "dist/${dir}" ;;
+            esac
+          done
+          ls -l dist
       - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          files=$(find artifacts -type f)
-          gh release create "${{ github.ref_name }}" $files \
+          gh release create "${{ github.ref_name }}" dist/* \
             --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes
