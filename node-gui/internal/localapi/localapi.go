@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/projectcolony/colony/node-gui/internal/config"
@@ -30,6 +31,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/report", s.handleReport)
 	return withLocalCORS(mux)
 }
 
@@ -70,6 +72,30 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, POST")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+type reportRequest struct {
+	Level   string `json:"level"`
+	Message string `json:"message"`
+}
+
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req reportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Message == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message is required"})
+		return
+	}
+	level := strings.ToUpper(strings.TrimSpace(req.Level))
+	if level == "" {
+		level = "ERROR"
+	}
+	s.daemon.PushError(level, req.Message)
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "reported"})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

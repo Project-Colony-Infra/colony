@@ -115,6 +115,58 @@ func (c *Cache) ReleaseColony(colonyID string) {
 	}
 }
 
+// Ranking is a node's live standing among the active fleet.
+type Ranking struct {
+	Rank         int
+	ActiveNodes  int
+	Score        float64
+	AverageScore float64
+}
+
+// RankOf computes where a node sits among active nodes by contribution score,
+// along with the active count and the fleet average. Rank is 1-based. A node
+// that is not currently active gets rank 0.
+func (c *Cache) RankOf(id string) Ranking {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var total float64
+	scores := make(map[string]float64)
+	for _, n := range c.nodes {
+		if n.Status == model.StatusOffline {
+			continue
+		}
+		s := n.ContributionScore()
+		scores[n.ID] = s
+		total += s
+	}
+
+	active := len(scores)
+	out := Ranking{ActiveNodes: active}
+	if active > 0 {
+		out.AverageScore = total / float64(active)
+	}
+
+	self, ok := scores[id]
+	if !ok {
+		return out
+	}
+	out.Score = self
+
+	rank := 1
+	for otherID, s := range scores {
+		if otherID == id {
+			continue
+		}
+		// Higher score ranks ahead. Ties broken by id for stability.
+		if s > self || (s == self && otherID < id) {
+			rank++
+		}
+	}
+	out.Rank = rank
+	return out
+}
+
 // MarkStale flips online nodes whose last heartbeat is older than the cutoff to
 // offline and returns copies of the ones it changed.
 func (c *Cache) MarkStale(offlineAfter time.Duration, now time.Time) []model.Node {

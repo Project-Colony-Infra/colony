@@ -78,6 +78,13 @@ message HeartbeatResponse {
   string status = 1;             // ACK or REREGISTER
   string assigned_colony_id = 2; // colony the coordinator has placed this node in
   string command = 3;            // optional command, empty when there is nothing to do
+
+  // Live standing in the fleet, so the node can show its rank without a
+  // separate call. Computed by the Coordinator on each heartbeat.
+  int32 rank = 4;                // 1-based position among active nodes by score
+  int32 active_nodes = 5;        // number of currently active nodes
+  double contribution_score = 6; // this node's score
+  double average_score = 7;      // average score across active nodes
 }
 
 message ReportErrorRequest {

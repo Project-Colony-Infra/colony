@@ -124,9 +124,14 @@ func (s *Server) Heartbeat(stream colonyv1.NodeService_HeartbeatServer) error {
 			log.Printf("heartbeat: record for %s: %v", nodeID, err)
 		}
 
+		r := s.cache.RankOf(nodeID)
 		if err := stream.Send(&colonyv1.HeartbeatResponse{
-			Status:           "ACK",
-			AssignedColonyId: colonyID,
+			Status:            "ACK",
+			AssignedColonyId:  colonyID,
+			Rank:              int32(r.Rank),
+			ActiveNodes:       int32(r.ActiveNodes),
+			ContributionScore: r.Score,
+			AverageScore:      r.AverageScore,
 		}); err != nil {
 			return err
 		}

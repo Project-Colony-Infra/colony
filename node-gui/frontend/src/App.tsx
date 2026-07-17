@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { RadialBar, RadialBarChart, PolarAngleAxis, ResponsiveContainer } from "recharts";
 import { fetchState, fetchConfig, saveConfig } from "./api";
 import type { Allocation, Config, State } from "./types";
 
-type Tab = "overview" | "resources" | "activity";
+type Tab = "overview" | "analytics" | "resources" | "activity";
 
 export default function App() {
   const [state, setState] = useState<State | null>(null);
@@ -38,6 +39,7 @@ export default function App() {
         {!reachable && <Banner text="Cannot reach the local node service on port 9090. Is the node running?" />}
         {reachable && !state && <Banner text="Starting up..." />}
         {state && tab === "overview" && <Overview state={state} />}
+        {state && tab === "analytics" && <Analytics state={state} />}
         {state && tab === "resources" && <Resources state={state} />}
         {state && tab === "activity" && <Activity state={state} />}
       </main>
@@ -83,6 +85,7 @@ function StatusPill({ online, connection }: { online: boolean; connection: strin
 function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const items: { key: Tab; label: string }[] = [
     { key: "overview", label: "Overview" },
+    { key: "analytics", label: "Analytics" },
     { key: "resources", label: "Resources" },
     { key: "activity", label: "Activity" },
   ];
@@ -137,6 +140,112 @@ function Overview({ state }: { state: State }) {
         <Row label="GPU memory" value={`${a.gpu_memory_gb} GB`} />
         <Row label="Bandwidth" value={`${a.bandwidth_mbps} Mbps`} />
       </Card>
+    </div>
+  );
+}
+
+function Analytics({ state }: { state: State }) {
+  const r = state.ranking;
+  const u = state.utilization;
+  const a = state.allocation;
+  const cpuTotal = a.cpu_cores || state.specs.cpu_cores;
+  const ramTotal = a.ram_gb || state.specs.ram_gb;
+
+  const vsAverage =
+    r.average_score > 0 ? Math.round(((r.contribution_score - r.average_score) / r.average_score) * 100) : 0;
+  const comparison =
+    r.active_nodes <= 1
+      ? "You are the only active node right now."
+      : vsAverage === 0
+        ? "Your contribution is right at the colony average."
+        : vsAverage > 0
+          ? `Your contribution is ${vsAverage}% above the colony average.`
+          : `Your contribution is ${Math.abs(vsAverage)}% below the colony average.`;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card title="Your rank">
+          <div className="flex items-baseline gap-2">
+            <span className="text-4xl font-semibold text-colony-core">
+              {r.rank > 0 ? `#${r.rank}` : "--"}
+            </span>
+            <span className="text-sm text-colony-slate">of {r.active_nodes} active nodes</span>
+          </div>
+          <p className="mt-2 text-sm text-colony-slate">{comparison}</p>
+        </Card>
+        <Card title="Contribution score">
+          <div className="text-4xl font-semibold text-colony-deep">{r.contribution_score.toFixed(0)}</div>
+          <p className="mt-2 text-sm text-colony-slate">Colony average {r.average_score.toFixed(0)}</p>
+        </Card>
+        <Card title="Standing">
+          <ScoreBar score={r.contribution_score} average={r.average_score} />
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card title="CPU">
+          <Gauge used={u.cpu_used} total={cpuTotal} unit="cores" />
+        </Card>
+        <Card title="Memory">
+          <Gauge used={u.ram_used_gb} total={ramTotal} unit="GB" />
+        </Card>
+        {state.specs.gpu_memory_gb > 0 ? (
+          <Card title="GPU memory">
+            <Gauge used={u.gpu_mem_used_gb} total={a.gpu_memory_gb || state.specs.gpu_memory_gb} unit="GB" />
+          </Card>
+        ) : (
+          <Card title="GPU">
+            <p className="text-sm text-colony-slate">No GPU is being donated.</p>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Gauge({ used, total, unit }: { used: number; total: number; unit: string }) {
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  const data = [{ name: unit, value: pct, fill: "#255DC0" }];
+  return (
+    <div className="relative">
+      <ResponsiveContainer width="100%" height={150}>
+        <RadialBarChart innerRadius="72%" outerRadius="100%" data={data} startAngle={220} endAngle={-40}>
+          <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+          <RadialBar background={{ fill: "#C8CCD9" }} dataKey="value" cornerRadius={8} angleAxisId={0} />
+        </RadialBarChart>
+      </ResponsiveContainer>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-semibold text-colony-charcoal">{pct}%</span>
+        <span className="font-mono text-xs text-colony-slate">
+          {used.toFixed(1)} / {total} {unit}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ScoreBar({ score, average }: { score: number; average: number }) {
+  const max = Math.max(score, average, 1);
+  return (
+    <div className="space-y-3 pt-2">
+      <LabeledBar label="You" value={score} max={max} color="bg-colony-core" />
+      <LabeledBar label="Average" value={average} max={max} color="bg-colony-grayblue" />
+    </div>
+  );
+}
+
+function LabeledBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  return (
+    <div className="text-sm">
+      <div className="mb-1 flex justify-between">
+        <span className="text-colony-slate">{label}</span>
+        <span className="font-mono text-xs text-colony-charcoal">{value.toFixed(0)}</span>
+      </div>
+      <div className="h-2 w-full rounded bg-colony-mist">
+        <div className={`h-2 rounded ${color}`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
@@ -197,8 +306,27 @@ function Resources({ state }: { state: State }) {
 }
 
 function Activity({ state }: { state: State }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const text = state.events.map((e) => `${e.time} ${e.level} ${e.message}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   return (
-    <Card title="Activity">
+    <Card
+      title="Activity"
+      action={
+        <button onClick={copy} className="rounded border border-colony-mist px-2 py-1 text-xs text-colony-slate hover:text-colony-charcoal">
+          {copied ? "Copied" : "Copy log"}
+        </button>
+      }
+    >
       <div className="max-h-[28rem] overflow-y-auto font-mono text-xs">
         {state.events.length === 0 && <div className="text-colony-slate">No activity yet.</div>}
         {state.events.map((e, i) => (
@@ -223,10 +351,13 @@ function LevelTag({ level }: { level: string }) {
   return <span className={`shrink-0 rounded px-1.5 ${cls}`}>{level}</span>;
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="rounded-md border border-colony-mist bg-colony-nearwhite p-5">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-colony-slate">{title}</h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-colony-slate">{title}</h2>
+        {action}
+      </div>
       <div className="space-y-2">{children}</div>
     </section>
   );

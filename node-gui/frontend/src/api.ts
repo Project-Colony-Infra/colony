@@ -25,3 +25,12 @@ export async function saveConfig(cfg: Config): Promise<Config> {
   if (!res.ok) throw new Error(`config save failed: ${res.status}`);
   return res.json();
 }
+
+export async function reportIssue(level: string, message: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level, message }),
+  });
+  if (!res.ok) throw new Error(`report failed: ${res.status}`);
+}

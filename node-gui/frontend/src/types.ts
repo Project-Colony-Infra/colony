@@ -28,6 +28,13 @@ export interface ActivityEvent {
   message: string;
 }
 
+export interface Ranking {
+  rank: number;
+  active_nodes: number;
+  contribution_score: number;
+  average_score: number;
+}
+
 export interface State {
   node_name: string;
   node_id: string;
@@ -38,6 +45,7 @@ export interface State {
   specs: Specs;
   allocation: Allocation;
   utilization: Utilization;
+  ranking: Ranking;
   events: ActivityEvent[];
 }
 

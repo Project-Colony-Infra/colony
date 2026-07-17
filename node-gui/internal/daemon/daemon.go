@@ -35,33 +35,48 @@ type Event struct {
 	Message string    `json:"message"`
 }
 
+// Ranking is the node's live standing in the fleet.
+type Ranking struct {
+	Rank         int     `json:"rank"`
+	ActiveNodes  int     `json:"active_nodes"`
+	Score        float64 `json:"contribution_score"`
+	AverageScore float64 `json:"average_score"`
+}
+
 // State is an immutable snapshot handed to the API and the GUI.
 type State struct {
-	NodeName       string                  `json:"node_name"`
-	NodeID         string                  `json:"node_id"`
-	Connection     string                  `json:"connection"`
-	Status         string                  `json:"status"`
-	ColonyID       string                  `json:"colony_id"`
-	CoordinatorURL string                  `json:"coordinator_url"`
-	Specs          resources.Specs         `json:"specs"`
-	Allocation     config.Allocation       `json:"allocation"`
-	Utilization    resources.Utilization   `json:"utilization"`
-	Events         []Event                 `json:"events"`
+	NodeName       string                `json:"node_name"`
+	NodeID         string                `json:"node_id"`
+	Connection     string                `json:"connection"`
+	Status         string                `json:"status"`
+	ColonyID       string                `json:"colony_id"`
+	CoordinatorURL string                `json:"coordinator_url"`
+	Specs          resources.Specs       `json:"specs"`
+	Allocation     config.Allocation     `json:"allocation"`
+	Utilization    resources.Utilization `json:"utilization"`
+	Ranking        Ranking               `json:"ranking"`
+	Events         []Event               `json:"events"`
 }
 
 // Daemon holds the mutable state behind a mutex.
 type Daemon struct {
-	mu         sync.RWMutex
-	cfg        config.Config
-	specs      resources.Specs
-	nodeID     string
-	connection string
-	colonyID   string
-	util       resources.Utilization
-	events     []Event
+	mu          sync.RWMutex
+	cfg         config.Config
+	specs       resources.Specs
+	nodeID      string
+	connection  string
+	colonyID    string
+	util        resources.Utilization
+	ranking     Ranking
+	events      []Event
+	conn        *client.Client
+	gpuOverTemp bool
 
 	reconnect chan struct{}
 }
+
+// gpuWarnTempC is the GPU temperature above which the node warns the operator.
+const gpuWarnTempC = 90.0
 
 // New detects hardware and builds a daemon from the given config.
 func New(cfg config.Config) *Daemon {
@@ -114,6 +129,7 @@ func (d *Daemon) Snapshot() State {
 		Specs:          d.specs,
 		Allocation:     d.cfg.Allocation,
 		Utilization:    d.util,
+		Ranking:        d.ranking,
 		Events:         events,
 	}
 }
@@ -177,7 +193,16 @@ func (d *Daemon) connectOnce(ctx context.Context) bool {
 		d.setConnection(Disconnected)
 		return false
 	}
-	defer cli.Close()
+	defer func() {
+		d.mu.Lock()
+		d.conn = nil
+		d.mu.Unlock()
+		cli.Close()
+	}()
+
+	d.mu.Lock()
+	d.conn = cli
+	d.mu.Unlock()
 
 	regCtx, cancel := context.WithTimeout(ctx, registerTTL)
 	res, err := cli.Register(regCtx, cfg, d.Specs())
@@ -230,7 +255,14 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, cli *client.Client, nodeID s
 			d.mu.Lock()
 			d.util = util
 			d.colonyID = ack.GetAssignedColonyId()
+			d.ranking = Ranking{
+				Rank:         int(ack.GetRank()),
+				ActiveNodes:  int(ack.GetActiveNodes()),
+				Score:        ack.GetContributionScore(),
+				AverageScore: ack.GetAverageScore(),
+			}
 			d.mu.Unlock()
+			d.checkGPUTemp(util.GPUTempC)
 		}
 	}
 }
@@ -248,6 +280,52 @@ func (d *Daemon) triggerReconnect() {
 	select {
 	case d.reconnect <- struct{}{}:
 	default:
+	}
+}
+
+// PushError records an issue locally and forwards it to the Coordinator issues
+// feed when connected, so the operator sees node side problems.
+func (d *Daemon) PushError(level, message string) {
+	d.log(level, message)
+
+	d.mu.RLock()
+	conn := d.conn
+	nodeID := d.nodeID
+	d.mu.RUnlock()
+
+	if conn == nil || nodeID == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), registerTTL)
+		defer cancel()
+		if err := conn.ReportError(ctx, nodeID, level, message); err != nil {
+			d.log("WARN", "Could not send the report to the Coordinator: "+err.Error())
+		}
+	}()
+}
+
+// checkGPUTemp warns the operator once when the GPU crosses the temperature
+// threshold, and notes when it recovers. Debounced so it does not spam.
+func (d *Daemon) checkGPUTemp(tempC float64) {
+	if tempC <= 0 {
+		return
+	}
+	d.mu.Lock()
+	over := d.gpuOverTemp
+	d.mu.Unlock()
+
+	switch {
+	case tempC >= gpuWarnTempC && !over:
+		d.mu.Lock()
+		d.gpuOverTemp = true
+		d.mu.Unlock()
+		d.PushError("WARN", "GPU temperature is high: "+itoa(int(tempC))+" C")
+	case tempC < gpuWarnTempC && over:
+		d.mu.Lock()
+		d.gpuOverTemp = false
+		d.mu.Unlock()
+		d.log("INFO", "GPU temperature back to normal: "+itoa(int(tempC))+" C")
 	}
 }
 
