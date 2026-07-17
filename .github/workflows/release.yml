@@ -62,10 +62,23 @@ jobs:
         working-directory: node-gui
         run: wails build -tags "desktop,webkit2_41" -skipbindings -platform ${{ matrix.platform }} -o colony-node
 
+      # The build output is a single binary on Linux and Windows but a .app
+      # bundle (a directory) on macOS, so package each platform into one zip. This
+      # keeps the macOS bundle intact and makes every release asset a single file.
+      - name: Package the node app (Unix)
+        if: runner.os != 'Windows'
+        working-directory: node-gui/build/bin
+        run: zip -r "${{ github.workspace }}/${{ matrix.artifact }}.zip" .
+      - name: Package the node app (Windows)
+        if: runner.os == 'Windows'
+        working-directory: node-gui/build/bin
+        shell: pwsh
+        run: Compress-Archive -Path * -DestinationPath "${{ github.workspace }}/${{ matrix.artifact }}.zip"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: node-gui/build/bin/*
+          path: ${{ matrix.artifact }}.zip
 
   coordinator:
     name: Coordinator binary
@@ -107,26 +120,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Stage release assets
-        # Each artifact holds one binary, but the node binaries are all named
-        # colony-node, so uploading them straight would collide on the asset name.
-        # Rename every file to its artifact directory name (keeping a .exe suffix)
-        # so each asset is unique and clearly labelled by platform.
-        run: |
-          mkdir -p dist
-          find artifacts -type f | while read -r f; do
-            dir=$(basename "$(dirname "$f")")
-            case "$f" in
-              *.exe) cp "$f" "dist/${dir}.exe" ;;
-              *)     cp "$f" "dist/${dir}" ;;
-            esac
-          done
-          ls -l dist
+      # Node apps arrive as colony-node-<platform>.zip and coordinators as single
+      # per-platform binaries, so every asset already has a unique name. Flatten
+      # the download directories and publish them.
       - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" dist/* \
+          gh release create "${{ github.ref_name }}" $(find artifacts -type f) \
             --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes
