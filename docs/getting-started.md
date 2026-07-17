@@ -14,13 +14,15 @@ The node app is a small desktop application. It detects your hardware, lets you
 choose how much to donate, registers with a Coordinator, and shows a live
 dashboard of your contribution.
 
-1. **Download** the node executable for your operating system from the
-   [Releases page](https://github.com/Project-Colony-Infra/colony/releases):
-   - Linux: `colony-node` (from the `colony-node-linux` archive)
-   - macOS: `colony-node` (from the `colony-node-macos` archive)
-   - Windows: `colony-node.exe` (from the `colony-node-windows` archive)
+1. **Download** the node app for your operating system from the
+   [Releases page](https://github.com/Project-Colony-Infra/colony/releases) and
+   unzip it:
+   - Linux: `colony-node-linux.zip` (contains the `colony-node` binary)
+   - macOS: `colony-node-macos.zip` (contains `colony-node.app`)
+   - Windows: `colony-node-windows.zip` (contains `colony-node.exe`)
 
-   These are raw per-OS binaries for the beta, not full installers yet.
+   These are per-OS builds for the beta, not signed installers yet, so your OS
+   may warn about an unidentified developer the first time you run it.
 
 2. **Linux only:** the app draws its window with the system WebKit, so install the
    runtime library once:
