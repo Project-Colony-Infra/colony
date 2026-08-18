@@ -6,8 +6,10 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,7 +53,7 @@ type Ranking struct {
 	AverageScore float64 `json:"average_score"`
 }
 
-// ColonyUsage is how much of the contribution the Colony is actually using right
+// ColonyUsage is how much of the contribution the Zone is actually using right
 // now, measured from the worker process. It is zero when no job is running.
 type ColonyUsage struct {
 	CPUCores float64 `json:"cpu_cores"`
@@ -78,21 +80,21 @@ type State struct {
 
 // Daemon holds the mutable state behind a mutex.
 type Daemon struct {
-	mu          sync.RWMutex
-	cfg         config.Config
-	specs       resources.Specs
-	fingerprint string
-	nodeID      string
-	connection  string
-	colonyID    string
-	util        resources.Utilization
-	ranking     Ranking
-	events      []Event
-	conn        *client.Client
-	gpuOverTemp bool
-	lastJobID   string
-	colonyUsage worker.Usage
-	colonyBusy  bool
+	mu             sync.RWMutex
+	cfg            config.Config
+	specs          resources.Specs
+	fingerprint    string
+	nodeID         string
+	connection     string
+	colonyID       string
+	util           resources.Utilization
+	ranking        Ranking
+	events         []Event
+	conn           *client.Client
+	gpuOverTemp    bool
+	lastCommandKey string
+	colonyUsage    worker.Usage
+	colonyBusy     bool
 
 	reconnect chan struct{}
 }
@@ -224,6 +226,7 @@ func (d *Daemon) available() bool {
 // operator turns availability off, it parks in the Paused state and waits to be
 // woken by a config change rather than hammering the Coordinator.
 func (d *Daemon) Run(ctx context.Context) {
+	defer d.recoverCrash("Run")
 	backoff := minBackoff
 	for {
 		if ctx.Err() != nil {
@@ -282,14 +285,14 @@ func (d *Daemon) notifyOffline() {
 func (d *Daemon) park(ctx context.Context) {
 	d.notifyOffline()
 	d.setConnection(Paused)
-	d.log("INFO", "Paused: this machine is not available to the Colony")
+	d.log("INFO", "Paused: this machine is not available to the Zone")
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-d.reconnect:
 			if d.available() {
-				d.log("INFO", "Resumed: making this machine available to the Colony")
+				d.log("INFO", "Resumed: making this machine available to the Zone")
 				return
 			}
 			// A config change that left the node unavailable (for example an
@@ -348,7 +351,7 @@ func (d *Daemon) connectOnce(ctx context.Context) bool {
 	d.nodeID = res.NodeID
 	d.connection = Connected
 	d.mu.Unlock()
-	d.log("INFO", "Registered with the Colony, node id "+res.NodeID)
+	d.log("INFO", "Registered with the Zone, node id "+res.NodeID)
 
 	d.heartbeatLoop(ctx, cli, res.NodeID, res.HeartbeatInterval)
 
@@ -431,11 +434,12 @@ func (d *Daemon) handleCommand(ctx context.Context, raw string) {
 	}
 
 	d.mu.Lock()
-	if cmd.JobID == d.lastJobID {
+	commandKey := cmd.JobID + ":" + cmd.Role
+	if commandKey == d.lastCommandKey {
 		d.mu.Unlock()
 		return
 	}
-	d.lastJobID = cmd.JobID
+	d.lastCommandKey = commandKey
 	host := coordinatorHost(d.cfg.CoordinatorURL)
 	d.mu.Unlock()
 
@@ -443,6 +447,7 @@ func (d *Daemon) handleCommand(ctx context.Context, raw string) {
 }
 
 func (d *Daemon) runJob(ctx context.Context, cmd worker.Command, host string) {
+	defer d.recoverCrash("runJob")
 	d.log("INFO", "Received LLM task "+cmd.JobID+" as the "+cmd.Role+" node")
 
 	d.mu.Lock()
@@ -493,6 +498,33 @@ func (d *Daemon) PushError(level, message string) {
 			d.log("WARN", "Could not send the report to the Coordinator: "+err.Error())
 		}
 	}()
+}
+
+// recoverCrash catches a panic in the named goroutine so one bad job or a
+// flaky driver call cannot take down the whole node process. It reports an
+// anonymized crash report to the Coordinator issues feed: what kind of error
+// it was, where it happened in the code, and the operating system. It never
+// includes the hostname, username, file paths outside this repo, or any
+// network address, so the report cannot identify the contributor or their
+// machine.
+func (d *Daemon) recoverCrash(where string) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	d.mu.RLock()
+	enabled := d.cfg.CrashReportsEnabled
+	osName := d.specs.OS
+	d.mu.RUnlock()
+
+	trace := string(debug.Stack())
+	d.log("ERROR", fmt.Sprintf("Recovered from a crash in %s: %v", where, r))
+
+	if !enabled {
+		return
+	}
+	report := fmt.Sprintf("Crash in %s (%T): %v\nOS: %s\n%s", where, r, r, osName, trace)
+	d.PushError("ERROR", report)
 }
 
 // checkGPUTemp warns the operator once when the GPU crosses the temperature

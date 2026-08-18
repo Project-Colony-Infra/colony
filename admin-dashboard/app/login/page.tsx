@@ -36,7 +36,7 @@ export default function LoginPage() {
         <div className="mb-6 flex items-center gap-3">
           <div className="h-9 w-9 rounded-md bg-colony-core" />
           <div>
-            <div className="text-lg font-semibold text-colony-navy">Project Colony</div>
+            <div className="text-lg font-semibold text-colony-navy">Zonn Console</div>
             <div className="text-xs text-colony-slate">Admin control plane</div>
           </div>
         </div>

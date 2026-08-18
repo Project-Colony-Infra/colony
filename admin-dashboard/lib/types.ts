@@ -79,6 +79,13 @@ export interface Event {
   message: string;
 }
 
+export interface Feedback {
+  id: number;
+  ts: string;
+  message: string;
+  email: string;
+}
+
 export interface Job {
   id: string;
   colony_id: string;
@@ -88,6 +95,7 @@ export interface Job {
   primary_node_id: string;
   secondary_node_id: string;
   status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
+  progress?: string;
   result: string;
   error: string;
   created_at: string;

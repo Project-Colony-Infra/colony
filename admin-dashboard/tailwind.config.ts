@@ -1,39 +1,42 @@
 import type { Config } from "tailwindcss";
 
-// Colors are limited to the Project Colony palette in documentation/branding.md.
+// Drapery Drama: derived from the four anchors (Pewter, Black, Champagne, Dark
+// Blue) in documentation/zonn/blueprint.md Section 8.1. Named keys are kept
+// from the original Colony palette so class names across the app did not need
+// to change, only what each one renders.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
         colony: {
-          navy: "#181D30",
-          core: "#255DC0",
-          deep: "#112860",
-          ice: "#80A8EC",
-          cloud: "#F3F3F6",
-          sand: "#E0DFD0",
-          charcoal: "#191B1C",
-          slate: "#51504A",
-          mist: "#C8CCD9",
-          paleblue: "#B9CFF4",
-          softblue: "#D4DDEE",
-          lightblue: "#F1F5FD",
-          nearwhite: "#EDEFF0",
-          olive: "#949389",
-          warmbeige: "#B9B8AC",
-          coolgray: "#C2C9CC",
-          grayblue: "#9EA6BD",
-          midblue: "#7590CA",
-          indigo: "#7A83A4",
-          vibrant: "#4B83E5",
-          midnight: "#071D44",
-          black: "#10100E",
+          navy: "#1A1720",
+          core: "#544943",
+          deep: "#2F2A2D",
+          ice: "#F0D2A3",
+          cloud: "#C6C5BF",
+          sand: "#C9C6BD",
+          charcoal: "#0A0A0C",
+          slate: "#48464B",
+          mist: "#878782",
+          paleblue: "#D0C8B8",
+          softblue: "#9F9E99",
+          lightblue: "#BAB9B4",
+          nearwhite: "#CAC6BC",
+          olive: "#453C3A",
+          warmbeige: "#D7CAB4",
+          coolgray: "#8B8B86",
+          grayblue: "#676568",
+          midblue: "#65584E",
+          indigo: "#0F0E12",
+          vibrant: "#EAD0A7",
+          midnight: "#070707",
+          black: "#020301",
         },
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
-        mono: ["JetBrains Mono", "monospace"],
+        sans: ["JetBrains Mono", "Cascadia Code", "Ubuntu Mono", "DejaVu Sans Mono", "ui-monospace", "SF Mono", "Menlo", "Consolas", "monospace"],
+        mono: ["JetBrains Mono", "Cascadia Code", "Ubuntu Mono", "DejaVu Sans Mono", "ui-monospace", "SF Mono", "Menlo", "Consolas", "monospace"],
       },
     },
   },

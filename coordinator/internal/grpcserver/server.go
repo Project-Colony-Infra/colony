@@ -211,6 +211,9 @@ func (s *Server) ReportError(ctx context.Context, req *colonyv1.ReportErrorReque
 	}
 	s.logEvent(model.Event{TS: ts, Level: level, Category: model.CategoryNode,
 		NodeID: req.GetNodeId(), NodeName: nodeName, Message: req.GetMessage()})
+	if s.orch != nil {
+		s.orch.FailJobFromNode(req.GetNodeId(), req.GetMessage())
+	}
 	return &colonyv1.ReportErrorResponse{Ok: true}, nil
 }
 

@@ -1,18 +1,18 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "colony-node",
-  "outputfilename": "colony-node",
+  "name": "zonn-node",
+  "outputfilename": "zonn-node",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "Project Colony"
+    "name": "Zonn"
   },
   "info": {
-    "productName": "Project Colony Node",
-    "productVersion": "0.1.0",
-    "comments": "One Colony, Infinite Compute"
+    "productName": "Zonn Node",
+    "productVersion": "0.1.1",
+    "comments": "One Zone. Infinite Compute."
   },
   "build": {
     "tags": ["desktop"]

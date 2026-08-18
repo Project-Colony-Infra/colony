@@ -1,6 +1,10 @@
-# Runs the Coordinator and the Admin dashboard.
-# The Node GUI is a desktop app and runs on contributor host machines, not here.
-# Placeholder wiring for v0.1. Service builds are filled in during Phase 0 and Phase 3.
+# Runs the Coordinator and Zonn Console. The Node app is a desktop app and runs
+# on contributor host machines, not here.
+#
+# Values below read from a .env file in this directory (copy .env.example to
+# .env first) with sane defaults if a variable is unset, so a bare
+# `docker compose up --build` still works for a quick local try, but every
+# setting is meant to be overridden in .env for a real deployment.
 
 services:
   coordinator:
@@ -8,15 +12,23 @@ services:
       context: ../coordinator
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
-      - "8081:8081"
+      # gRPC is what contributor nodes connect to. This is the one port a real
+      # deployment needs reachable from the internet.
+      - "${COORDINATOR_GRPC_PORT:-8080}:8080"
+      # REST has no auth of its own; Zonn Console talks to it over the internal
+      # Docker network (http://coordinator:8081), never needs it from outside.
+      # Bound to loopback only so it never accidentally faces the internet.
+      - "127.0.0.1:${COORDINATOR_HTTP_PORT:-8081}:8081"
     volumes:
       - coordinator-data:/data
     environment:
       - COORDINATOR_GRPC_PORT=8080
       - COORDINATOR_HTTP_PORT=8081
+      - COORDINATOR_RELAY_URL=${COORDINATOR_RELAY_URL:-}
       - COORDINATOR_DB_PATH=/data/colony.db
-      - NODE_OFFLINE_AFTER_SECONDS=15
+      - NODE_OFFLINE_AFTER_SECONDS=${NODE_OFFLINE_AFTER_SECONDS:-15}
+      - HEARTBEAT_INTERVAL_SECONDS=${HEARTBEAT_INTERVAL_SECONDS:-5}
+      - REAPER_INTERVAL_SECONDS=${REAPER_INTERVAL_SECONDS:-3}
     restart: unless-stopped
 
   admin-dashboard:
@@ -24,11 +36,16 @@ services:
       context: ../admin-dashboard
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "${ADMIN_DASHBOARD_PORT:-3000}:3000"
     environment:
       - COORDINATOR_API_URL=http://coordinator:8081
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD=admin
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      # No fallback here on purpose: the app itself falls back to a well known
+      # dev value if this is unset, which is fine for a laptop try but must be
+      # a real random value for anything reachable from the internet. Set it
+      # in .env before deploying anywhere but your own machine.
+      - AUTH_SECRET=${AUTH_SECRET:-}
     depends_on:
       - coordinator
     restart: unless-stopped

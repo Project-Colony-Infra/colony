@@ -6,10 +6,11 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/", label: "Fleet" },
   { href: "/nodes", label: "Nodes" },
-  { href: "/colonies", label: "Colonies" },
+  { href: "/colonies", label: "Zones" },
   { href: "/playground", label: "Playground" },
   { href: "/activity", label: "Activity" },
   { href: "/issues", label: "Issues" },
+  { href: "/feedback", label: "Feedback" },
 ];
 
 export function Nav() {
@@ -28,7 +29,7 @@ export function Nav() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <div className="h-7 w-7 rounded bg-colony-core" />
-            <span className="font-semibold text-colony-cloud">Colony Admin</span>
+            <span className="font-semibold text-colony-cloud">Zonn Console</span>
           </div>
           <nav className="flex gap-1">
             {links.map((l) => (

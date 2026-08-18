@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -31,30 +32,127 @@ type Command struct {
 	Split        float64 `json:"split"`
 	RelayPort    string  `json:"relay_port"`
 	RelayPath    string  `json:"relay_path"`
+	RelayURL     string  `json:"relay_url"`
 }
 
-// scriptPath resolves the worker script: an explicit override, otherwise the
-// copy the node keeps in ~/.colony.
+// scriptPath resolves the worker script from an explicit override, the node's
+// data directory, or next to the released desktop binary.
 func scriptPath() (string, error) {
 	if s := os.Getenv("COLONY_WORKER_SCRIPT"); s != "" {
+		if _, err := os.Stat(s); err != nil {
+			return "", fmt.Errorf("worker script not found at %s", s)
+		}
 		return s, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".colony", "inference_worker.py"), nil
+
+	executable, _ := os.Executable()
+	return findScriptPath(executable, runtime.GOOS)
 }
 
-func pythonPath() string {
-	if p := os.Getenv("COLONY_PYTHON"); p != "" {
-		return p
+func findScriptPath(executable, goos string) (string, error) {
+	var candidates []string
+	if dataDir := os.Getenv("COLONY_HOME"); dataDir != "" {
+		candidates = append(candidates, filepath.Join(dataDir, "inference_worker.py"))
+	} else if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".colony", "inference_worker.py"))
 	}
-	return "python3"
+	if executable != "" {
+		appDir := filepath.Dir(executable)
+		candidates = append(candidates, filepath.Join(appDir, "inference_worker.py"))
+		if goos == "darwin" {
+			candidates = append(candidates, filepath.Clean(filepath.Join(appDir, "..", "Resources", "inference_worker.py")))
+		}
+	}
+	if goos == "linux" {
+		candidates = append(candidates, "/usr/lib/zonn/inference_worker.py")
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("worker script not found; place inference_worker.py in the Zonn Node folder or set COLONY_WORKER_SCRIPT")
+}
+
+func pythonCommand() (string, []string, error) {
+	if p := os.Getenv("COLONY_PYTHON"); p != "" {
+		return p, nil, nil
+	}
+	candidates := []struct {
+		name string
+		args []string
+	}{
+		{name: "python3"},
+		{name: "python"},
+	}
+	if runtime.GOOS == "windows" {
+		candidates = []struct {
+			name string
+			args []string
+		}{
+			{name: "py", args: []string{"-3"}},
+			{name: "python"},
+			{name: "python3"},
+		}
+	}
+	for _, candidate := range candidates {
+		if path, err := exec.LookPath(candidate.name); err == nil {
+			return path, candidate.args, nil
+		}
+	}
+	return "", nil, fmt.Errorf("Python 3 was not found; install Python 3 or set COLONY_PYTHON")
+}
+
+func bundledWorkerPath(appExecutable, goos string) (string, error) {
+	if configured := os.Getenv("COLONY_WORKER_EXECUTABLE"); configured != "" {
+		if info, err := os.Stat(configured); err == nil && !info.IsDir() {
+			return configured, nil
+		}
+		return "", fmt.Errorf("bundled worker not found at %s", configured)
+	}
+
+	name := "inference-worker"
+	if goos == "windows" {
+		name += ".exe"
+	}
+	var candidates []string
+	if appExecutable != "" {
+		appDir := filepath.Dir(appExecutable)
+		candidates = append(candidates, filepath.Join(appDir, name))
+		if goos == "darwin" {
+			candidates = append(candidates, filepath.Clean(filepath.Join(appDir, "..", "Resources", name)))
+		}
+	}
+	if goos == "linux" {
+		candidates = append(candidates, filepath.Join("/usr/lib/zonn", name))
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", os.ErrNotExist
+}
+
+func workerCommand(engine string) (string, []string, error) {
+	executable, _ := os.Executable()
+	if bundled, err := bundledWorkerPath(executable, runtime.GOOS); err == nil {
+		return bundled, nil, nil
+	}
+
+	script, err := scriptPath()
+	if err != nil {
+		return "", nil, fmt.Errorf("bundled inference worker is missing and Python fallback is unavailable: %w", err)
+	}
+	python, pythonArgs, err := pythonCommand()
+	if err != nil {
+		return "", nil, err
+	}
+	return python, append(pythonArgs, script), nil
 }
 
 // Usage is the worker process's live resource draw, which is how much of the
-// contribution the Colony is actually using on this node.
+// contribution the Zone is actually using on this node.
 type Usage struct {
 	CPUCores float64
 	RAMGB    float64
@@ -63,31 +161,25 @@ type Usage struct {
 // Launch runs the worker for one job and blocks until it exits. Output is passed
 // to logfn line by line. While the worker runs, sampleFn is called about once a
 // second with the process's live CPU and memory draw, so the node can show what
-// of the contribution the Colony is using; it is called with a zero Usage once
+// of the contribution the Zone is using; it is called with a zero Usage once
 // the worker exits. sampleFn may be nil.
 func Launch(ctx context.Context, cmd Command, coordinatorHost string, logfn func(level, message string), sampleFn func(Usage)) error {
-	script, err := scriptPath()
-	if err != nil {
-		return fmt.Errorf("resolve worker script: %w", err)
-	}
-	if _, err := os.Stat(script); err != nil {
-		return fmt.Errorf("worker script not found at %s", script)
-	}
-
 	relayPath := cmd.RelayPath
 	if relayPath == "" {
 		relayPath = "/relay"
 	}
-	wsURL := fmt.Sprintf("ws://%s:%s%s?job=%s&role=%s",
-		coordinatorHost, cmd.RelayPort, relayPath, url.QueryEscape(cmd.JobID), url.QueryEscape(cmd.Role))
+	wsURL, err := commandRelayURL(cmd, coordinatorHost, relayPath)
+	if err != nil {
+		return err
+	}
 
 	args := []string{
-		script,
 		"--role", cmd.Role,
 		"--relay-ws", wsURL,
 		"--engine", cmd.Engine,
 		"--model", cmd.Model,
 		"--max-new-tokens", strconv.Itoa(cmd.MaxNewTokens),
+		"--split", strconv.FormatFloat(cmd.Split, 'f', -1, 64),
 	}
 	if cmd.Role == "primary" {
 		args = append(args, "--prompt", cmd.Prompt)
@@ -96,7 +188,11 @@ func Launch(ctx context.Context, cmd Command, coordinatorHost string, logfn func
 	logfn("INFO", fmt.Sprintf("Starting %s worker for job %s", cmd.Role, cmd.JobID))
 
 	var out bytes.Buffer
-	proc := exec.CommandContext(ctx, pythonPath(), args...)
+	program, prefixArgs, err := workerCommand(cmd.Engine)
+	if err != nil {
+		return err
+	}
+	proc := exec.CommandContext(ctx, program, append(prefixArgs, args...)...)
 	proc.Stdout = &out
 	proc.Stderr = &out
 	if err := proc.Start(); err != nil {
@@ -127,6 +223,22 @@ func Launch(ctx context.Context, cmd Command, coordinatorHost string, logfn func
 	}
 	logfn("INFO", fmt.Sprintf("Worker for job %s finished", cmd.JobID))
 	return nil
+}
+
+func commandRelayURL(cmd Command, coordinatorHost, relayPath string) (string, error) {
+	raw := cmd.RelayURL
+	if raw == "" {
+		raw = fmt.Sprintf("ws://%s:%s%s", coordinatorHost, cmd.RelayPort, relayPath)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
+		return "", fmt.Errorf("invalid relay URL %q", raw)
+	}
+	query := u.Query()
+	query.Set("job", cmd.JobID)
+	query.Set("role", cmd.Role)
+	u.RawQuery = query.Encode()
+	return u.String(), nil
 }
 
 // sampleUsage reports the worker process's CPU and memory draw about once a

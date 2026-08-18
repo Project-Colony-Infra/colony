@@ -25,8 +25,8 @@ result, or a stop signal) travel as JSON text frames.
 mock   real numpy matrix math split across the two nodes. No model download, so
        it runs anywhere and proves the relay and the split compute end to end.
        Output is deterministic gibberish, clearly labelled.
-real   a genuine GPT-2 family model split by layer. Needs torch and transformers
-       installed and the model available on the nodes.
+real   a genuine Qwen2, Llama/SmolLM2, or GPT-2 model split by layer. Release
+       installers include the runtime; the selected model downloads on first use.
 ```
 
 ## Run by hand
@@ -42,13 +42,15 @@ python3 inference_worker.py --role primary --engine mock --prompt 'Hello' \
 ```
 
 In normal operation the node daemon launches both workers automatically when the
-admin deploys a job. It finds the script via `COLONY_WORKER_SCRIPT` and the
-interpreter via `COLONY_PYTHON` (default `python3`).
+admin deploys a job. It finds the script next to the released node executable,
+in the node data directory, or via `COLONY_WORKER_SCRIPT`. It discovers Python 3
+on Linux, macOS, and Windows, and `COLONY_PYTHON` can override the interpreter.
 
 ## Dependencies
 
-The mock engine needs only numpy. The real engine additionally needs torch and
-transformers, which the node bundles with its Python runtime for the beta.
+The desktop installers include numpy, CPU PyTorch, Transformers, and Python inside
+a self-contained native worker. Both engines therefore run on CPU-only machines;
+the real engine additionally downloads the selected model on first use.
 
 ## Status
 

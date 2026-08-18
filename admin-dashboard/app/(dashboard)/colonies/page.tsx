@@ -29,12 +29,12 @@ export default function ColoniesPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-colony-navy">Colonies</h1>
+        <h1 className="text-xl font-semibold text-colony-navy">Zones</h1>
         <button
           onClick={() => setShowCreate(true)}
           className="rounded bg-colony-core px-4 py-2 text-sm font-medium text-colony-cloud hover:bg-colony-deep"
         >
-          Create colony
+          Create Zone
         </button>
       </div>
 
@@ -42,7 +42,7 @@ export default function ColoniesPage() {
 
       {!colonies || colonies.length === 0 ? (
         <Card>
-          <p className="text-sm text-colony-slate">No colonies yet. Create one to group nodes into a supercomputer.</p>
+          <p className="text-sm text-colony-slate">No Zones yet. Create one to group nodes into a supercomputer.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -126,7 +126,7 @@ function DeployLLMModal({ colony, onClose }: { colony: Colony; onClose: () => vo
       <div className="w-full max-w-lg rounded-xl border border-colony-mist bg-colony-nearwhite p-6">
         <h2 className="mb-1 text-lg font-semibold text-colony-navy">Deploy LLM to {colony.name}</h2>
         <p className="mb-4 text-xs text-colony-slate">
-          The model splits across two nodes in this colony. The primary runs the lower layers and relays activation tensors through the Coordinator to the secondary.
+          The model splits into primary and secondary workers. With one online node, both roles run locally; with multiple nodes, the roles run across the Zone.
         </p>
         <label className="mb-1 block text-sm text-colony-slate">Prompt</label>
         <textarea
@@ -180,7 +180,7 @@ function CreateColonyModal({ nodes, onClose }: { nodes: Node[]; onClose: () => v
 
   const create = async () => {
     if (!name.trim() || selected.size === 0) {
-      setErr("Give the colony a name and pick at least one node.");
+      setErr("Give the Zone a name and pick at least one node.");
       return;
     }
     setBusy(true);
@@ -193,7 +193,7 @@ function CreateColonyModal({ nodes, onClose }: { nodes: Node[]; onClose: () => v
       });
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not create the colony");
+      setErr(e instanceof Error ? e.message : "Could not create the Zone");
     } finally {
       setBusy(false);
     }
@@ -202,8 +202,8 @@ function CreateColonyModal({ nodes, onClose }: { nodes: Node[]; onClose: () => v
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-colony-navy/60 px-4">
       <div className="w-full max-w-lg rounded-xl border border-colony-mist bg-colony-nearwhite p-6">
-        <h2 className="mb-4 text-lg font-semibold text-colony-navy">Create colony</h2>
-        <label className="mb-1 block text-sm text-colony-slate">Colony name</label>
+        <h2 className="mb-4 text-lg font-semibold text-colony-navy">Create Zone</h2>
+        <label className="mb-1 block text-sm text-colony-slate">Zone name</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -232,7 +232,7 @@ function CreateColonyModal({ nodes, onClose }: { nodes: Node[]; onClose: () => v
             disabled={busy}
             className="rounded bg-colony-core px-4 py-2 text-sm font-medium text-colony-cloud hover:bg-colony-deep disabled:opacity-60"
           >
-            {busy ? "Creating..." : "Deploy colony"}
+            {busy ? "Creating..." : "Deploy Zone"}
           </button>
         </div>
       </div>

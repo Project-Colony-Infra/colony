@@ -7,17 +7,37 @@ import { Card, Banner } from "@/components/ui";
 import type { Colony, Job, Node } from "@/lib/types";
 
 // The Playground is a friendly place to run the split LLM inference test and watch
-// the whole colony work together. The task the user types is the prompt the model
+// the whole Zone work together. The task the user types is the prompt the model
 // answers. It is not a general code runner.
 
 const PRESETS = [
-  "Explain what a compute colony is in one paragraph",
+  "Explain what a compute Zone is in one paragraph",
   "Write a haiku about many computers working as one",
   "List three uses for distributed inference",
   "Summarize how split inference works",
   "Give a friendly welcome message for a new contributor",
   "Explain GPU vs CPU contribution simply",
 ];
+
+const REAL_MODELS = [
+  {
+    id: "Qwen/Qwen2.5-0.5B-Instruct",
+    label: "Qwen 2.5 0.5B Instruct (recommended, about 1 GB)",
+  },
+  {
+    id: "HuggingFaceTB/SmolLM2-360M-Instruct",
+    label: "SmolLM2 360M Instruct (lighter, about 0.7 GB)",
+  },
+  {
+    id: "Qwen/Qwen2.5-1.5B-Instruct",
+    label: "Qwen 2.5 1.5B Instruct (better, about 3 GB)",
+  },
+  {
+    id: "distilbert/distilgpt2",
+    label: "DistilGPT2 (legacy completion model)",
+  },
+  { id: "gpt2", label: "GPT-2 124M (legacy completion model)" },
+] as const;
 
 // A node counts as online for the test when it is not OFFLINE (ONLINE or BUSY
 // both mean it is heartbeating and can take work).
@@ -49,17 +69,17 @@ export default function PlaygroundPage() {
     return (c: Colony) => c.node_ids.filter((id) => isOnline(nodeById.get(id))).length;
   }, [nodeById]);
 
-  // Pick a sensible default colony once colonies load: prefer one that can run the
-  // test (two or more online nodes), otherwise the first colony.
+  // Pick a sensible default Zone once Zones load: prefer one that can run the
+  // test (one or more online nodes), otherwise the first Zone.
   useEffect(() => {
     if (colonyId || !colonies || colonies.length === 0) return;
-    const ready = colonies.find((c) => onlineCountFor(c) >= 2);
+    const ready = colonies.find((c) => onlineCountFor(c) >= 1);
     setColonyId((ready ?? colonies[0]).id);
   }, [colonies, colonyId, onlineCountFor]);
 
   const selected = (colonies ?? []).find((c) => c.id === colonyId);
   const selectedOnline = selected ? onlineCountFor(selected) : 0;
-  const canRun = !!selected && selectedOnline >= 2 && prompt.trim().length > 0 && !busy;
+  const canRun = !!selected && selectedOnline >= 1 && prompt.trim().length > 0 && !busy;
 
   const run = async () => {
     if (!selected) return;
@@ -91,7 +111,7 @@ export default function PlaygroundPage() {
       <div>
         <h1 className="text-xl font-semibold text-colony-navy">Playground</h1>
         <p className="mt-1 text-sm text-colony-slate">
-          Run the split inference test and watch the colony work as one. Your task is the prompt the
+          Run the split inference test and watch the Zone work as one. Your task is the prompt the
           language model answers. The primary node computes the lower layers and relays the activation
           tensor through the Coordinator to the secondary node, which finishes and returns the text.
         </p>
@@ -100,11 +120,11 @@ export default function PlaygroundPage() {
       {coloniesError && <Banner text={`Cannot reach the Coordinator: ${coloniesError}`} />}
 
       {noColonies ? (
-        <Card title="No colonies yet">
+        <Card title="No Zones yet">
           <p className="text-sm text-colony-slate">
-            You need a colony of at least two online nodes to run the test.{" "}
+            You need a Zone with at least one online node to run the test.{" "}
             <Link href="/colonies" className="text-colony-core hover:underline">
-              Create one on the Colonies page
+              Create one on the Zones page
             </Link>
             , then come back here.
           </p>
@@ -113,7 +133,7 @@ export default function PlaygroundPage() {
         <Card title="Compose a run">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm text-colony-slate">Colony</label>
+              <label className="mb-1 block text-sm text-colony-slate">Zone</label>
               <select
                 value={colonyId}
                 onChange={(e) => setColonyId(e.target.value)}
@@ -125,9 +145,9 @@ export default function PlaygroundPage() {
                   </option>
                 ))}
               </select>
-              {selected && selectedOnline < 2 && (
+              {selected && selectedOnline < 1 && (
                 <p className="mt-1.5 text-xs text-colony-indigo">
-                  This test needs at least two online nodes in the colony. {selected.name} has{" "}
+                  This test needs at least one online node in the Zone. {selected.name} has{" "}
                   {selectedOnline}.
                 </p>
               )}
@@ -136,7 +156,15 @@ export default function PlaygroundPage() {
               <label className="mb-1 block text-sm text-colony-slate">Engine</label>
               <select
                 value={engine}
-                onChange={(e) => setEngine(e.target.value)}
+                onChange={(e) => {
+                  const nextEngine = e.target.value;
+                  setEngine(nextEngine);
+                  if (nextEngine === "real" && model === "mock-3b") {
+                    setModel("Qwen/Qwen2.5-0.5B-Instruct");
+                  } else if (nextEngine === "mock" && model !== "mock-3b") {
+                    setModel("mock-3b");
+                  }
+                }}
                 className="w-full rounded border border-colony-softblue bg-colony-lightblue px-3 py-2 text-sm outline-none focus:border-colony-ice"
               >
                 <option value="mock">mock (no model download, proves the pipeline)</option>
@@ -144,7 +172,7 @@ export default function PlaygroundPage() {
               </select>
               <p className="mt-1.5 text-xs text-colony-slate">
                 {engine === "real"
-                  ? "For real, try microsoft/Phi-3-mini-4k-instruct in the model field."
+                  ? "Instruction models answer tasks. The first run downloads the selected model on every participating node."
                   : "Mock relays a stand-in tensor so you can watch the full path without a download."}
               </p>
             </div>
@@ -180,12 +208,34 @@ export default function PlaygroundPage() {
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm text-colony-slate">Model</label>
-              <input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="mock-3b"
-                className="w-full rounded border border-colony-softblue bg-colony-lightblue px-3 py-2 font-mono text-sm outline-none focus:border-colony-ice"
-              />
+              {engine === "real" ? (
+                <>
+                  <select
+                    value={REAL_MODELS.some((option) => option.id === model) ? model : "custom"}
+                    onChange={(e) => {
+                      if (e.target.value !== "custom") setModel(e.target.value);
+                    }}
+                    className="w-full rounded border border-colony-softblue bg-colony-lightblue px-3 py-2 text-sm outline-none focus:border-colony-ice"
+                  >
+                    {REAL_MODELS.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                    <option value="custom">Custom compatible Hugging Face model</option>
+                  </select>
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="Hugging Face model ID"
+                    className="mt-2 w-full rounded border border-colony-softblue bg-colony-lightblue px-3 py-2 font-mono text-xs outline-none focus:border-colony-ice"
+                  />
+                </>
+              ) : (
+                <input
+                  value={model}
+                  readOnly
+                  className="w-full rounded border border-colony-softblue bg-colony-lightblue px-3 py-2 font-mono text-sm outline-none"
+                />
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm text-colony-slate">Max new tokens</label>
@@ -212,11 +262,12 @@ export default function PlaygroundPage() {
               disabled={!canRun}
               className="rounded bg-colony-core px-4 py-2 text-sm font-medium text-colony-cloud hover:bg-colony-deep disabled:opacity-60"
             >
-              {busy ? "Starting..." : "Run on the Colony"}
+              {busy ? "Starting..." : "Run on the Zone"}
             </button>
-            {selected && selectedOnline >= 2 && !busy && (
+            {selected && selectedOnline >= 1 && !busy && (
               <span className="text-xs text-colony-slate">
-                Ready with {selectedOnline} online nodes in {selected.name}.
+                Ready with {selectedOnline} online node{selectedOnline === 1 ? "" : "s"} in {selected.name}.
+                {selectedOnline === 1 ? " Both split roles will run locally." : ""}
               </span>
             )}
           </div>
@@ -273,8 +324,8 @@ function LiveRun({ jobId, nodes }: { jobId: string; nodes: Node[] }) {
               </p>
             ) : (
               <p className="text-sm text-colony-slate">
-                The primary node is relaying activation tensors through the Coordinator to the secondary
-                node.
+                {job.progress ||
+                  "The primary node is relaying activation tensors through the Coordinator to the secondary node."}
               </p>
             )}
           </div>

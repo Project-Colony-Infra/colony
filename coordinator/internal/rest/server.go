@@ -62,6 +62,8 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/colonies/{id}", s.handleDeleteColony)
 		r.Post("/colonies/{id}/deploy-llm", s.handleDeployLLM)
 		r.Get("/errors", s.handleListErrors)
+		r.Get("/feedback", s.handleListFeedback)
+		r.Post("/feedback", s.handleCreateFeedback)
 		r.Get("/activity", s.handleListActivity)
 		r.Get("/jobs", s.handleListJobs)
 		r.Get("/jobs/{id}", s.handleGetJob)
@@ -259,31 +261,40 @@ func (s *Server) handleDeployLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pick the first two reachable nodes in the colony.
+	// Pick the first two reachable nodes in the colony. A one-node Zone runs
+	// both roles locally so the full split and relay pipeline remains testable.
 	var members []model.Node
 	for _, n := range s.cache.List() {
 		if n.ColonyID == colonyID && (n.Status == model.StatusOnline || n.Status == model.StatusBusy) {
 			members = append(members, n)
 		}
 	}
-	if len(members) < 2 {
-		writeError(w, http.StatusBadRequest, "the colony needs at least two online nodes for the split inference test")
+	if len(members) < 1 {
+		writeError(w, http.StatusBadRequest, "the colony needs at least one online node for the inference test")
 		return
 	}
 
-	modelName := req.Model
-	if modelName == "" {
-		modelName = "mock-3b"
-	}
 	engine := req.Engine
 	if engine == "" {
 		engine = "mock"
 	}
+	modelName := req.Model
+	if modelName == "" {
+		if engine == "real" {
+			modelName = "Qwen/Qwen2.5-0.5B-Instruct"
+		} else {
+			modelName = "mock-3b"
+		}
+	}
 
-	job := s.orch.CreateJob(colonyID, modelName, req.Prompt, engine, members[0].ID, members[1].ID, req.MaxNewTokens)
-	log.Printf("rest: deployed LLM job %s to colony %s (primary %s, secondary %s)", job.ID, colonyID, members[0].Name, members[1].Name)
+	secondary := members[0]
+	if len(members) > 1 {
+		secondary = members[1]
+	}
+	job := s.orch.CreateJob(colonyID, modelName, req.Prompt, engine, members[0].ID, secondary.ID, req.MaxNewTokens)
+	log.Printf("rest: deployed LLM job %s to colony %s (primary %s, secondary %s)", job.ID, colonyID, members[0].Name, secondary.Name)
 	s.logEvent(model.Event{TS: time.Now().UTC(), Level: model.LevelInfo, Category: model.CategoryJob,
-		Message: fmt.Sprintf("Deployed %s across %s and %s (%s engine)", modelName, members[0].Name, members[1].Name, engine)})
+		Message: fmt.Sprintf("Deployed %s across %s and %s (%s engine)", modelName, members[0].Name, secondary.Name, engine)})
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -322,6 +333,60 @@ func (s *Server) handleListErrors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, errs)
+}
+
+type createFeedbackRequest struct {
+	Message string `json:"message"`
+	Email   string `json:"email"`
+}
+
+// maxFeedbackMessage keeps a single submission from ballooning the database;
+// generous enough for a real bug report, not enough for an accidental paste of
+// a whole log file.
+const maxFeedbackMessage = 4000
+
+func (s *Server) handleCreateFeedback(w http.ResponseWriter, r *http.Request) {
+	var req createFeedbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Message = strings.TrimSpace(req.Message)
+	if req.Message == "" {
+		writeError(w, http.StatusBadRequest, "a message is required")
+		return
+	}
+	if len(req.Message) > maxFeedbackMessage {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("message is too long, keep it under %d characters", maxFeedbackMessage))
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+
+	ts := time.Now().UTC()
+	if err := s.store.InsertFeedback(req.Message, req.Email, ts); err != nil {
+		log.Printf("rest: insert feedback: %v", err)
+		writeError(w, http.StatusInternalServerError, "could not record feedback")
+		return
+	}
+	s.logEvent(model.Event{TS: ts, Level: model.LevelInfo, Category: model.CategorySystem,
+		Message: "New feedback submitted from the admin dashboard"})
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "received"})
+}
+
+func (s *Server) handleListFeedback(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	items, err := s.store.ListFeedback(limit)
+	if err != nil {
+		log.Printf("rest: list feedback: %v", err)
+		writeError(w, http.StatusInternalServerError, "could not list feedback")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

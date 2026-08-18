@@ -136,6 +136,14 @@ type Event struct {
 	Message  string    `json:"message"`
 }
 
+// Feedback is a single submission from the admin dashboard's feedback form.
+type Feedback struct {
+	ID      int64     `json:"id"`
+	TS      time.Time `json:"ts"`
+	Message string    `json:"message"`
+	Email   string    `json:"email"`
+}
+
 // Stats are the fleet totals shown on the admin overview.
 type Stats struct {
 	TotalNodes    int `json:"total_nodes"`

@@ -39,10 +39,14 @@ export function LevelBadge({ level }: { level: string }) {
   return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}>{level}</span>;
 }
 
+// The Coordinator still sends "colony" as the wire value for this event
+// category (see blueprint.md Section 12); Zone is a display label only.
+export const CATEGORY_LABELS: Record<string, string> = { colony: "Zone" };
+
 export function CategoryChip({ category }: { category: string }) {
   return (
     <span className="rounded border border-colony-mist bg-colony-lightblue px-1.5 py-0.5 text-xs font-medium text-colony-slate">
-      {category}
+      {CATEGORY_LABELS[category] ?? category}
     </span>
   );
 }

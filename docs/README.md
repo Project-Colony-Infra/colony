@@ -1,12 +1,12 @@
 # Documentation
 
-Guides for running Project Colony v0.1.
+Guides for running Zonn v0.1.
 
-- [Getting started](getting-started.md): install and run the node app as a
-  contributor, run the Coordinator and admin dashboard as an operator, and see how
+- [Getting started](getting-started.md): install and run Zonn Node as a
+  contributor, run the Coordinator and Zonn Console as an operator, and see how
   the split inference test ties the whole system together.
-- [Playground](playground.md): run the split LLM inference test on a Colony from
-  the admin dashboard and watch the nodes cooperate and measure their contribution.
+- [Playground](playground.md): run the split LLM inference test on a Zone from
+  Zonn Console and watch the nodes cooperate and measure their contribution.
 - [Remote testing](remote-testing.md): run the Coordinator on your own machine and
   let testers in other places contribute over a temporary tunnel, with no hosting
   and nothing left running when you stop.

@@ -79,6 +79,17 @@ CREATE TABLE IF NOT EXISTS errors (
 
 CREATE INDEX IF NOT EXISTS idx_errors_ts ON errors (ts);
 
+-- Feedback submitted from the admin dashboard's feedback form. Durable so a
+-- beta tester's report survives a Coordinator restart even before anyone reads it.
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    message     TEXT NOT NULL,
+    email       TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback (ts);
+
 -- Full activity log for the admin dashboard: registrations, online and offline
 -- transitions, colony create and delete, deploys, and errors. Unlike errors it
 -- has no node foreign key, so colony and system wide events are recorded too and

@@ -54,8 +54,7 @@ daemon.
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 # Linux also needs the webkit2gtk and gtk3 development packages, for example on
 # Ubuntu: sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev
-go mod tidy            # pulls in the Wails dependency (kept out of the lean headless build)
-wails build -tags "desktop,webkit2_41" -skipbindings   # produces build/bin/colony-node
+wails build -tags "desktop,webkit2_41" -skipbindings   # produces build/bin/zonn-node
 ```
 
 The `webkit2_41` tag points cgo at webkit2gtk-4.1 (what current Ubuntu ships)
@@ -65,7 +64,15 @@ daemon on :9090 and imports no Wails bindings, and every root .go file sits
 behind the desktop tag, which would otherwise fail binding generation. Use
 `wails dev -tags "desktop,webkit2_41"` to run it live.
 
-Cross platform installers (.exe, .dmg, .AppImage) are wired up in Phase 5.
+Installers bundle a native `inference-worker` containing Python, numpy, CPU
+PyTorch, and Transformers for both mock and real Playground runs, so contributors
+install no language runtime or dependencies. Models download on first use and are
+then read from the local Hugging Face cache. A source or custom deployment can put that
+script in `~/.colony/` or set `COLONY_WORKER_SCRIPT`.
+
+Install candidates are a Windows Setup `.exe`, an Ubuntu `.deb`, and a macOS
+`.dmg`. The build workflow uploads them for clean-machine verification and never
+publishes a GitHub release automatically.
 
 ## Status
 

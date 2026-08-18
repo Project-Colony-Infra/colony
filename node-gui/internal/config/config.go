@@ -29,7 +29,7 @@ type Config struct {
 	CoordinatorURL string     `json:"coordinator_url"`
 	Allocation     Allocation `json:"allocation"`
 	// Available is the operator's on/off switch: when false the node stops
-	// contributing and drops offline from the Colony until it is turned back on.
+	// contributing and drops offline from the Zone until it is turned back on.
 	Available bool `json:"available"`
 	// Configured records that the starting allocation has been seeded. On the
 	// very first run it is false, so the daemon fills in a sensible 20% default
@@ -37,6 +37,11 @@ type Config struct {
 	Configured   bool `json:"configured"`
 	OnlyWhenIdle bool `json:"only_when_idle"`
 	AutoStart    bool `json:"auto_start"`
+	// CrashReportsEnabled sends an anonymized report (error type, stack trace,
+	// operating system only, never hostname, username, or IP) to the Coordinator
+	// if the daemon recovers from a panic, so the operator can see it happened.
+	// Defaults on for the beta; the contributor can turn it off in Settings.
+	CrashReportsEnabled bool `json:"crash_reports_enabled"`
 }
 
 var writeMu sync.Mutex
@@ -71,14 +76,15 @@ func Path() (string, error) {
 // Default builds a fresh config with a stable id and a friendly name.
 func Default() Config {
 	return Config{
-		NodeID:         NewID(),
-		NodeName:       fmt.Sprintf("PC-%s", randomSuffix(6)),
-		CoordinatorURL: "localhost:8080",
-		Allocation:     Allocation{},
-		Available:      true,
-		Configured:     false,
-		OnlyWhenIdle:   false,
-		AutoStart:      false,
+		NodeID:              NewID(),
+		NodeName:            fmt.Sprintf("PC-%s", randomSuffix(6)),
+		CoordinatorURL:      "localhost:8080",
+		Allocation:          Allocation{},
+		Available:           true,
+		Configured:          false,
+		OnlyWhenIdle:        false,
+		AutoStart:           false,
+		CrashReportsEnabled: true,
 	}
 }
 
@@ -127,6 +133,12 @@ func Load() (Config, error) {
 	// it configured to protect its allocation from the first run 20% seeding.
 	if _, ok := present["configured"]; !ok {
 		cfg.Configured = true
+		rewrite = true
+	}
+	// A config written before this field existed should still get crash reports
+	// by default, matching a fresh install rather than silently opting out.
+	if _, ok := present["crash_reports_enabled"]; !ok {
+		cfg.CrashReportsEnabled = true
 		rewrite = true
 	}
 	// Backfill a stable id for configs written before it existed.

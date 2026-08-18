@@ -1,17 +1,17 @@
 # Playground
 
-The Playground is where an operator runs work on a Colony and watches the whole
+The Playground is where an operator runs work on a Zone and watches the whole
 system solve it together. In v0.1 the work is the **split LLM inference test**: a
 small language model is divided across two nodes, and they cooperate through the
 Coordinator to answer a prompt.
 
-Open it from the admin dashboard nav: **Playground**.
+Open it from the Zonn Console nav: **Playground**.
 
 ## What it does
 
-You give the Colony a task (a prompt for the language model). The Coordinator:
+You give the Zone a task (a prompt for the language model). The Coordinator:
 
-1. picks two online nodes in the Colony, a primary and a secondary,
+1. picks two online nodes in the Zone, a primary and a secondary,
 2. gives the primary the lower transformer layers and the secondary the upper
    layers,
 3. has the primary compute its layers and relay the intermediate activation tensor
@@ -20,9 +20,9 @@ You give the Colony a task (a prompt for the language model). The Coordinator:
 
 ## Running a task
 
-1. **Pick a Colony.** The selector lists active colonies. The test needs at least
-   two online nodes in the Colony; if the selected one has fewer, the Run button is
-   disabled and tells you so. No colonies yet? Create one on the Colonies page.
+1. **Pick a Zone.** The selector lists active Zones. The test needs at least
+   two online nodes in the Zone; if the selected one has fewer, the Run button is
+   disabled and tells you so. No Zones yet? Create one on the Zones page.
 
 2. **Choose a task.** Click a preset to fill the prompt, or type your own in the
    task box. This is the prompt the language model answers.
@@ -30,13 +30,13 @@ You give the Colony a task (a prompt for the language model). The Coordinator:
 3. **Pick an engine.**
    - `mock` (default) proves the pipeline with real relayed tensors and needs no
      model download. Use this to see the system work end to end quickly.
-   - `real` runs an actual small model (for example
-     `microsoft/Phi-3-mini-4k-instruct`) on CPU. It is slower and downloads the
-     model on first use.
+   - `real` runs an actual supported model on CPU. Qwen 2.5 0.5B Instruct is the
+     recommended balance of answer quality and resource use. It is slower and
+     downloads the model on first use on every participating node.
 
    Set the model name and the maximum number of new tokens if you want.
 
-4. **Run on the Colony.** The run view appears below.
+4. **Run on the Zone.** The run view appears below.
 
 ## What you see while it runs
 
@@ -54,9 +54,9 @@ Recent runs are listed so you can reopen any of them.
 
 ## Measuring contribution
 
-While a task runs, each participating node's contributor dashboard shows a "Colony
+While a task runs, each participating node's contributor dashboard shows a "Zone
 use of your contribution" card: how much of the CPU and memory that node pledged is
-actually being drawn by the Colony right now, versus how much is still free. That
+actually being drawn by the Zone right now, versus how much is still free. That
 is the contributor side of the same run you launched here.
 
 ## Scope note
@@ -64,4 +64,4 @@ is the contributor side of the same run you launched here.
 The Playground runs the split inference test, which is v0.1's real distributed
 capability. It is not a general code runner: the task you provide is a prompt for
 the model, not arbitrary code. Running imported software or custom code across the
-Colony is the longer term vision and is intentionally out of scope for v0.1.
+Zone is the longer term vision and is intentionally out of scope for v0.1.

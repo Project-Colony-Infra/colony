@@ -38,7 +38,7 @@ export default function NodeDetailPage({ params }: { params: { id: string } }) {
             <Info label="GPU memory donated" value={`${node.allocated.gpu_memory_gb} GB`} />
             <Info label="CPU in use" value={`${node.utilization.cpu_used.toFixed(1)} cores`} />
             <Info label="Memory in use" value={`${node.utilization.ram_used_gb.toFixed(1)} GB`} />
-            <Info label="Colony" value={node.colony_id || "None"} mono={!!node.colony_id} />
+            <Info label="Zone" value={node.colony_id || "None"} mono={!!node.colony_id} />
             <Info label="Score" value={node.contribution_score.toFixed(0)} />
           </Card>
         </div>

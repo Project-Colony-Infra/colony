@@ -16,7 +16,7 @@ export default function JobPage({ params }: { params: { id: string } }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Link href="/colonies" className="text-sm text-colony-core hover:underline">Colonies</Link>
+        <Link href="/colonies" className="text-sm text-colony-core hover:underline">Zones</Link>
         <span className="text-colony-mist">/</span>
         <h1 className="text-xl font-semibold text-colony-navy">LLM job</h1>
         {job && <JobStatus status={job.status} />}

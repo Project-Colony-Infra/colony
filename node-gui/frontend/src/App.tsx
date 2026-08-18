@@ -89,8 +89,8 @@ function Header({ state, reachable }: { state: State | null; reachable: boolean 
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-md bg-colony-core" />
           <div>
-            <div className="text-lg font-semibold text-colony-cloud">Project Colony</div>
-            <div className="text-xs text-colony-ice">One Colony, Infinite Compute</div>
+            <div className="text-lg font-semibold text-colony-cloud">Zonn</div>
+            <div className="text-xs text-colony-ice">One Zone. Infinite Compute.</div>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -107,7 +107,8 @@ function Header({ state, reachable }: { state: State | null; reachable: boolean 
 
 function StatusPill({ online, paused, connection }: { online: boolean; paused: boolean; connection: string }) {
   // The palette carries no red or green, so status is icon plus label plus the
-  // active/offline blues (see branding.md), never color alone.
+  // active/offline tones from the Drapery Drama palette (see blueprint.md 8.1),
+  // never color alone.
   const label = paused ? "Paused" : online ? "Online" : connection === "CONNECTING" ? "Connecting" : "Offline";
   const cls = online ? "bg-colony-ice text-colony-midnight" : "bg-colony-mist text-colony-navy";
   const dot = online ? "bg-colony-deep" : "bg-colony-slate";
@@ -159,7 +160,7 @@ function Tabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 // Compute unit weights mirror the Coordinator (blueprint_v2 section 2.2): a CPU
 // core is the base unit, RAM is lighter per GB, GPU memory heavier. A node's
 // donation folds into this one normalized number, so a CPU heavy machine and a
-// GPU heavy machine add to the same colony pool. There is no separate CPU or GPU
+// GPU heavy machine add to the same Zone pool. There is no separate CPU or GPU
 // track: whatever mix you contribute converts into the same units.
 const UNIT_CPU = 1.0;
 const UNIT_RAM = 0.5;
@@ -183,7 +184,7 @@ function ContributionUnits({ alloc }: { alloc: Allocation }) {
       <p className="mt-1 text-xs text-colony-slate">
         CPU, memory, and GPU fold into one number, so it does not matter whether you lean CPU or GPU. Here that is{" "}
         {alloc.cpu_cores} cores ({cpuU.toFixed(1)}) + {alloc.ram_gb} GB RAM ({ramU.toFixed(1)}) + {alloc.gpu_memory_gb} GB GPU (
-        {gpuU.toFixed(1)}). Every node adds its units to the same colony pool.
+        {gpuU.toFixed(1)}). Every node adds its units to the same Zone pool.
       </p>
     </div>
   );
@@ -201,7 +202,7 @@ function Overview({ state }: { state: State }) {
           <Row label="Name" value={state.node_name} />
           <Row label="Identity" value={state.node_id} mono />
           <Row label="Connection" value={state.connection} />
-          <Row label="Colony" value={state.colony_id || "Not in a colony"} mono={!!state.colony_id} />
+          <Row label="Zone" value={state.colony_id || "Not in a Zone"} mono={!!state.colony_id} />
         </Card>
         <Card title="Machine">
           <Row label="System" value={s.os} />
@@ -213,10 +214,10 @@ function Overview({ state }: { state: State }) {
 
       {/* Each resource is a conservation balance: in use + contributed + free
           always adds up to the machine total, so what the machine consumes and
-          what is offered to the Colony can never together exceed what exists. */}
+          what is offered to the Zone can never together exceed what exists. */}
       <Card title="Resource balance">
         <p className="text-sm text-colony-slate">
-          For every resource, what your machine is using, what you contribute to the Colony, and the free room left
+          For every resource, what your machine is using, what you contribute to the Zone, and the free room left
           always add up to your total. You can never contribute more than is free.
         </p>
         <BalanceLegend />
@@ -239,19 +240,19 @@ function Overview({ state }: { state: State }) {
   );
 }
 
-// ContributionUsage shows how much of the pledge the Colony is actually drawing
-// on right now, separate from the machine's own usage. It is zero when no Colony
+// ContributionUsage shows how much of the pledge the Zone is actually drawing
+// on right now, separate from the machine's own usage. It is zero when no Zone
 // task is running here, and moves when one is, so a contributor can see their
 // donation being put to work rather than only what they set aside.
 function ContributionUsage({ state }: { state: State }) {
   const cu = state.colony_usage;
   const a = state.allocation;
   return (
-    <Card title="Colony use of your contribution">
+    <Card title="Zone use of your contribution">
       <p className="text-sm text-colony-slate">
         {cu.active
-          ? "The Colony is running a task on your node. This is how much of what you pledged it is drawing right now."
-          : "The Colony is not running anything on your node right now, so none of your pledge is in use. This moves when a task runs here."}
+          ? "The Zone is running a task on your node. This is how much of what you pledged it is drawing right now."
+          : "The Zone is not running anything on your node right now, so none of your pledge is in use. This moves when a task runs here."}
       </p>
       <div className="mt-3 space-y-4">
         <UsageBar label="CPU" used={cu.cpu_cores} pledged={a.cpu_cores} unit="cores" />
@@ -283,7 +284,7 @@ function BalanceLegend() {
   return (
     <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-colony-slate">
       <Swatch className="bg-colony-core" label="In use by your machine" />
-      <Swatch className="bg-colony-ice" label="Contributed to the Colony" />
+      <Swatch className="bg-colony-ice" label="Contributed to the Zone" />
       <Swatch className="bg-colony-mist" label="Free" />
     </div>
   );
@@ -366,10 +367,10 @@ function Analytics({ state, history }: { state: State; history: Sample[] }) {
     r.active_nodes <= 1
       ? "You are the only active node right now."
       : vsAverage === 0
-        ? "Your contribution is right at the colony average."
+        ? "Your contribution is right at the Zone average."
         : vsAverage > 0
-          ? `Your contribution is ${vsAverage}% above the colony average.`
-          : `Your contribution is ${Math.abs(vsAverage)}% below the colony average.`;
+          ? `Your contribution is ${vsAverage}% above the Zone average.`
+          : `Your contribution is ${Math.abs(vsAverage)}% below the Zone average.`;
 
   const peakCpu = history.reduce((m, h) => Math.max(m, h.cpu), 0);
   const peakRam = history.reduce((m, h) => Math.max(m, h.ram), 0);
@@ -378,7 +379,7 @@ function Analytics({ state, history }: { state: State; history: Sample[] }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Your rank" value={r.rank > 0 ? `#${r.rank}` : "--"} sub={`of ${r.active_nodes} active nodes`} accent="text-colony-core" />
-        <StatCard label="Compute units" value={r.contribution_score.toFixed(0)} sub={`colony average ${r.average_score.toFixed(0)}`} accent="text-colony-deep" />
+        <StatCard label="Compute units" value={r.contribution_score.toFixed(0)} sub={`Zone average ${r.average_score.toFixed(0)}`} accent="text-colony-deep" />
         <StatCard label="Fleet nodes" value={String(r.active_nodes)} sub="online right now" accent="text-colony-core" />
         {hasGPU ? (
           <StatCard
@@ -421,7 +422,7 @@ function Analytics({ state, history }: { state: State; history: Sample[] }) {
         )}
       </div>
 
-      <Card title="Standing versus the colony">
+      <Card title="Standing versus the Zone">
         <p className="mb-3 text-sm text-colony-slate">{comparison}</p>
         <ScoreBar score={r.contribution_score} average={r.average_score} />
       </Card>
@@ -477,30 +478,30 @@ function UtilizationChart({ history, hasGPU }: { history: Sample[]; hasGPU: bool
       <AreaChart data={history} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
         <defs>
           <linearGradient id="gCpu" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#255DC0" stopOpacity={0.5} />
-            <stop offset="100%" stopColor="#255DC0" stopOpacity={0.04} />
+            <stop offset="0%" stopColor="#544943" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="#544943" stopOpacity={0.04} />
           </linearGradient>
           <linearGradient id="gRam" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#80A8EC" stopOpacity={0.5} />
-            <stop offset="100%" stopColor="#80A8EC" stopOpacity={0.04} />
+            <stop offset="0%" stopColor="#F0D2A3" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="#F0D2A3" stopOpacity={0.04} />
           </linearGradient>
           <linearGradient id="gGpu" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#4B83E5" stopOpacity={0.5} />
-            <stop offset="100%" stopColor="#4B83E5" stopOpacity={0.04} />
+            <stop offset="0%" stopColor="#EAD0A7" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="#EAD0A7" stopOpacity={0.04} />
           </linearGradient>
         </defs>
-        <CartesianGrid stroke="#C8CCD9" strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#51504A" }} interval="preserveStartEnd" minTickGap={44} />
-        <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#51504A" }} tickFormatter={(v) => `${v}%`} width={40} />
+        <CartesianGrid stroke="#878782" strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#48464B" }} interval="preserveStartEnd" minTickGap={44} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#48464B" }} tickFormatter={(v) => `${v}%`} width={40} />
         <Tooltip
-          contentStyle={{ background: "#EDEFF0", border: "1px solid #C8CCD9", borderRadius: 6, fontSize: 12 }}
-          labelStyle={{ color: "#51504A" }}
+          contentStyle={{ background: "#CAC6BC", border: "1px solid #878782", borderRadius: 6, fontSize: 12 }}
+          labelStyle={{ color: "#48464B" }}
           formatter={(v: number, n: string) => [`${v}%`, n]}
         />
-        <Area type="monotone" dataKey="cpu" name="CPU" stroke="#255DC0" strokeWidth={2} fill="url(#gCpu)" isAnimationActive={false} />
-        <Area type="monotone" dataKey="ram" name="Memory" stroke="#80A8EC" strokeWidth={2} fill="url(#gRam)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="cpu" name="CPU" stroke="#544943" strokeWidth={2} fill="url(#gCpu)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="ram" name="Memory" stroke="#F0D2A3" strokeWidth={2} fill="url(#gRam)" isAnimationActive={false} />
         {hasGPU && (
-          <Area type="monotone" dataKey="gpu" name="GPU memory" stroke="#4B83E5" strokeWidth={2} fill="url(#gGpu)" isAnimationActive={false} />
+          <Area type="monotone" dataKey="gpu" name="GPU memory" stroke="#EAD0A7" strokeWidth={2} fill="url(#gGpu)" isAnimationActive={false} />
         )}
       </AreaChart>
     </ResponsiveContainer>
@@ -509,13 +510,13 @@ function UtilizationChart({ history, hasGPU }: { history: Sample[]; hasGPU: bool
 
 function Gauge({ used, total, unit }: { used: number; total: number; unit: string }) {
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
-  const data = [{ name: unit, value: pct, fill: "#255DC0" }];
+  const data = [{ name: unit, value: pct, fill: "#544943" }];
   return (
     <div className="relative">
       <ResponsiveContainer width="100%" height={150}>
         <RadialBarChart innerRadius="72%" outerRadius="100%" data={data} startAngle={220} endAngle={-40}>
           <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-          <RadialBar background={{ fill: "#C8CCD9" }} dataKey="value" cornerRadius={8} angleAxisId={0} />
+          <RadialBar background={{ fill: "#878782" }} dataKey="value" cornerRadius={8} angleAxisId={0} />
         </RadialBarChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
@@ -621,21 +622,47 @@ function Settings({ state }: { state: State }) {
     }
   };
 
+  const toggleCrashReports = async () => {
+    const next = { ...cfg, crash_reports_enabled: !cfg.crash_reports_enabled };
+    setCfg(next);
+    try {
+      setCfg(await saveConfig(next));
+    } catch {
+      setCfg({ ...next, crash_reports_enabled: !next.crash_reports_enabled });
+      setError("Could not apply that change. Is the node running?");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card title="Availability">
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="text-sm font-medium text-colony-charcoal">
-              {cfg.available ? "This machine is available to the Colony" : "This machine is paused"}
+              {cfg.available ? "This machine is available to the Zone" : "This machine is paused"}
             </div>
             <p className="mt-1 max-w-md text-sm text-colony-slate">
               {cfg.available
                 ? "The node is registered and contributing the resources you set below. Turn this off to stop contributing without quitting the app."
-                : "The node has stopped contributing and shows as offline to the Colony. Turn this on to make yourself available again."}
+                : "The node has stopped contributing and shows as offline to the Zone. Turn this on to make yourself available again."}
             </p>
           </div>
-          <Toggle on={cfg.available} busy={savingAvail} onChange={toggleAvailable} label="Available to the Colony" />
+          <Toggle on={cfg.available} busy={savingAvail} onChange={toggleAvailable} label="Available to the Zone" />
+        </div>
+      </Card>
+
+      <Card title="Crash reports">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium text-colony-charcoal">
+              {cfg.crash_reports_enabled ? "Anonymized crash reports are on" : "Crash reports are off"}
+            </div>
+            <p className="mt-1 max-w-md text-sm text-colony-slate">
+              If the node recovers from a crash, it sends the error type, a stack trace, and your operating system to
+              the Coordinator so it shows up in Zonn Console. Never your hostname, username, IP address, or files.
+            </p>
+          </div>
+          <Toggle on={cfg.crash_reports_enabled} busy={false} onChange={toggleCrashReports} label="Send anonymized crash reports" />
         </div>
       </Card>
 

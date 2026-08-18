@@ -66,4 +66,5 @@ export interface Config {
   configured: boolean;
   only_when_idle: boolean;
   auto_start: boolean;
+  crash_reports_enabled: boolean;
 }

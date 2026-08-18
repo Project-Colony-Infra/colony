@@ -65,7 +65,7 @@ export default function FleetPage() {
 
           <p className="mt-4 text-xs leading-relaxed text-colony-slate">
             One normalized pool. 1 CPU core = 1 unit, 1 GB RAM = 0.5, 1 GB GPU memory = 1.5, so CPU-heavy and
-            GPU-heavy machines add to the same colony total.
+            GPU-heavy machines add to the same Zone total.
           </p>
         </Card>
 

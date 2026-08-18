@@ -81,6 +81,33 @@ func (m *Manager) dropSession(jobID string) {
 	delete(m.sessions, jobID)
 }
 
+func (m *Manager) stopSession(jobID string) {
+	m.mu.Lock()
+	sess := m.sessions[jobID]
+	m.mu.Unlock()
+	if sess == nil {
+		return
+	}
+	sess.mu.Lock()
+	conns := make([]*safeConn, 0, len(sess.conns))
+	for _, conn := range sess.conns {
+		conns = append(conns, conn)
+	}
+	sess.mu.Unlock()
+	for _, conn := range conns {
+		_ = conn.writeText([]byte(`{"type":"stop"}`))
+		_ = conn.conn.Close()
+	}
+}
+
+func (m *Manager) acceptsRelay(jobID string) (bool, bool) {
+	job, exists := m.Job(jobID)
+	if !exists {
+		return false, false
+	}
+	return job.Status != StatusDone && job.Status != StatusFailed, true
+}
+
 // ServeRelay upgrades a worker connection and relays its frames to its peer.
 // Binary frames are activation tensors forwarded to the peer. Text frames are
 // control messages the Coordinator reads to track job status and capture the
@@ -92,6 +119,14 @@ func (m *Manager) ServeRelay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "job and role are required", http.StatusBadRequest)
 		return
 	}
+	if accepted, exists := m.acceptsRelay(jobID); !accepted {
+		if !exists {
+			http.Error(w, "job not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "job is already finished", http.StatusGone)
+		}
+		return
+	}
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -99,6 +134,10 @@ func (m *Manager) ServeRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := &safeConn{conn: rawConn}
+	if accepted, _ := m.acceptsRelay(jobID); !accepted {
+		_ = rawConn.Close()
+		return
+	}
 	log.Printf("relay: %s connected for job %s", role, jobID)
 
 	sess := m.getSession(jobID)
@@ -180,7 +219,7 @@ func (m *Manager) handleControl(sess *session, jobID, fromRole string, data []by
 		m.stopPeer(sess, fromRole)
 		return true
 	case "status":
-		m.setStatus(jobID, StatusRunning)
+		m.setProgress(jobID, msg.Status)
 	}
 	return false
 }

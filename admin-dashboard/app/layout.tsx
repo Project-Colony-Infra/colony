@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Project Colony Admin",
-  description: "One Colony, Infinite Compute",
+  title: "Zonn Console",
+  description: "One Zone. Infinite Compute.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

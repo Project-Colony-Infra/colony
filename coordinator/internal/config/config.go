@@ -12,6 +12,7 @@ import (
 type Config struct {
 	GRPCPort          string
 	HTTPPort          string
+	RelayURL          string
 	DBPath            string
 	OfflineAfter      time.Duration
 	HeartbeatInterval time.Duration
@@ -23,6 +24,7 @@ func Load() Config {
 	return Config{
 		GRPCPort:          getenv("COORDINATOR_GRPC_PORT", "8080"),
 		HTTPPort:          getenv("COORDINATOR_HTTP_PORT", "8081"),
+		RelayURL:          os.Getenv("COORDINATOR_RELAY_URL"),
 		DBPath:            getenv("COORDINATOR_DB_PATH", "colony.db"),
 		OfflineAfter:      time.Duration(getenvInt("NODE_OFFLINE_AFTER_SECONDS", 15)) * time.Second,
 		HeartbeatInterval: time.Duration(getenvInt("HEARTBEAT_INTERVAL_SECONDS", 5)) * time.Second,

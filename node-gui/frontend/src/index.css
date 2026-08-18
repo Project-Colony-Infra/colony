@@ -8,9 +8,9 @@
 
 body {
   margin: 0;
-  background-color: #f3f3f6;
-  color: #191b1c;
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background-color: #C6C5BF;
+  color: #0A0A0C;
+  font-family: "JetBrains Mono", "Cascadia Code", "Ubuntu Mono", "DejaVu Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -21,7 +21,7 @@ input[type="range"] {
   width: 100%;
   height: 6px;
   border-radius: 4px;
-  background: #c8ccd9;
+  background: #878782;
   outline: none;
 }
 input[type="range"]::-webkit-slider-thumb {
@@ -30,15 +30,15 @@ input[type="range"]::-webkit-slider-thumb {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #255dc0;
+  background: #544943;
   cursor: pointer;
-  border: 2px solid #f3f3f6;
+  border: 2px solid #C6C5BF;
 }
 input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #255dc0;
+  background: #544943;
   cursor: pointer;
-  border: 2px solid #f3f3f6;
+  border: 2px solid #C6C5BF;
 }

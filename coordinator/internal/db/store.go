@@ -352,6 +352,40 @@ func (d *DB) ListEvents(limit int) ([]model.Event, error) {
 	return out, rows.Err()
 }
 
+// InsertFeedback appends a submission from the admin dashboard's feedback form.
+func (d *DB) InsertFeedback(message, email string, ts time.Time) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO feedback (ts, message, email) VALUES (?, ?, ?)`,
+		ts, message, email,
+	)
+	return err
+}
+
+// ListFeedback returns the most recent feedback submissions, newest first.
+func (d *DB) ListFeedback(limit int) ([]model.Feedback, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := d.sql.Query(
+		`SELECT id, ts, message, email FROM feedback ORDER BY ts DESC, id DESC LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []model.Feedback{}
+	for rows.Next() {
+		var f model.Feedback
+		if err := rows.Scan(&f.ID, &f.TS, &f.Message, &f.Email); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 func nullString(s string) any {
 	if s == "" {
 		return nil

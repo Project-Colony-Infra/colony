@@ -2,10 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { usePoll } from "@/lib/client";
-import { Card, LevelBadge, CategoryChip, Banner } from "@/components/ui";
+import { Card, LevelBadge, CategoryChip, CATEGORY_LABELS, Banner } from "@/components/ui";
 import type { Event } from "@/lib/types";
 
 const LEVELS = ["ALL", "INFO", "WARN", "ERROR"] as const;
+// Values match the Coordinator's event category field on the wire (still
+// "colony" there, see blueprint.md Section 12); CATEGORY_LABELS supplies the
+// "Zone" display label.
 const CATEGORIES = ["ALL", "node", "colony", "job", "system"] as const;
 
 type Level = (typeof LEVELS)[number];
@@ -30,7 +33,13 @@ export default function ActivityPage() {
         <h1 className="text-xl font-semibold text-colony-navy">Activity</h1>
         <div className="flex flex-wrap items-center gap-4">
           <Filter label="Level" value={level} options={LEVELS} onChange={(v) => setLevel(v as Level)} />
-          <Filter label="Category" value={category} options={CATEGORIES} onChange={(v) => setCategory(v as Category)} />
+          <Filter
+            label="Category"
+            value={category}
+            options={CATEGORIES}
+            labelFor={(o) => CATEGORY_LABELS[o] ?? o}
+            onChange={(v) => setCategory(v as Category)}
+          />
         </div>
       </div>
 
@@ -69,11 +78,13 @@ function Filter({
   label,
   value,
   options,
+  labelFor,
   onChange,
 }: {
   label: string;
   value: string;
   options: readonly string[];
+  labelFor?: (option: string) => string;
   onChange: (v: string) => void;
 }) {
   return (
@@ -86,7 +97,7 @@ function Filter({
       >
         {options.map((o) => (
           <option key={o} value={o}>
-            {o}
+            {labelFor ? labelFor(o) : o}
           </option>
         ))}
       </select>

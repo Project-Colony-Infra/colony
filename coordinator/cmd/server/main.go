@@ -51,7 +51,7 @@ func main() {
 	go reaper.Run(ctx)
 
 	// Orchestrator for the LLM test. Nodes reach the relay on the HTTP port.
-	orch := orchestrator.NewManager(cfg.HTTPPort, "/relay")
+	orch := orchestrator.NewManager(cfg.HTTPPort, "/relay", cfg.RelayURL)
 
 	// gRPC server for nodes.
 	grpcSrv := grpc.NewServer()

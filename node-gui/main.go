@@ -18,13 +18,13 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:            "Project Colony",
+		Title:            "Zonn Node",
 		Width:            1120,
 		Height:           760,
 		MinWidth:         900,
 		MinHeight:        600,
 		AssetServer:      &assetserver.Options{Assets: assets},
-		BackgroundColour: &options.RGBA{R: 24, G: 29, B: 48, A: 255}, // Colony Navy #181D30
+		BackgroundColour: &options.RGBA{R: 26, G: 23, B: 32, A: 255}, // Drapery Drama navy #1A1720
 		OnStartup:        app.startup,
 		Bind:             []any{app},
 	})

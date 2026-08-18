@@ -84,3 +84,13 @@ CREATE TABLE IF NOT EXISTS errors (
 );
 
 CREATE INDEX IF NOT EXISTS idx_errors_ts ON errors (ts);
+
+-- Feedback submitted from the admin dashboard's feedback form.
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    message     TEXT NOT NULL,
+    email       TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback (ts);
