@@ -1,0 +1,47 @@
+name: Publish approved release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing approved release tag
+        required: true
+      installer_run:
+        description: Run containing Windows, macOS, and coordinator artifacts
+        required: true
+      ubuntu_run:
+        description: Run containing the successful Ubuntu artifact
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download verified install candidates
+        shell: bash
+        run: |
+          mkdir -p artifacts/ubuntu artifacts/windows artifacts/macos-intel artifacts/macos-arm artifacts/coordinator
+          gh run download "${{ inputs.ubuntu_run }}" -n "zonn-node-ubuntu-amd64-0.1.1" -D artifacts/ubuntu
+          gh run download "${{ inputs.installer_run }}" -n "zonn-node-windows-x64-0.1.1" -D artifacts/windows
+          gh run download "${{ inputs.installer_run }}" -n "zonn-node-macos-intel-0.1.1" -D artifacts/macos-intel
+          gh run download "${{ inputs.installer_run }}" -n "zonn-node-macos-apple-silicon-0.1.1" -D artifacts/macos-arm
+          gh run download "${{ inputs.installer_run }}" -n coordinator-install-candidates -D artifacts/coordinator
+
+      - name: Publish release assets
+        shell: bash
+        run: |
+          mkdir publish
+          find artifacts -type f -exec cp '{}' publish/ \;
+          cd publish
+          sha256sum * | sort -k2 > SHA256SUMS.txt
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --draft --generate-notes --title "Zonn Node ${RELEASE_TAG}"
+          gh release upload "$RELEASE_TAG" * --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
