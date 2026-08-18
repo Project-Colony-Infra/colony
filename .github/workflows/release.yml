@@ -133,6 +133,11 @@ jobs:
         shell: pwsh
         run: |
           $sourceDir = (Resolve-Path "node-gui/build/bin").Path
+          if (Test-Path "$sourceDir\zonn-node") {
+            Move-Item "$sourceDir\zonn-node" "$sourceDir\zonn-node.exe"
+          }
+          Copy-Item "node-gui/build/worker/inference-worker.exe" "$sourceDir\inference-worker.exe"
+          Copy-Item "llm-runner/inference_worker.py" "$sourceDir\inference_worker.py"
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
             "/DAppVersion=$env:INSTALLER_VERSION" `
             "/DSourceDir=$sourceDir" `
