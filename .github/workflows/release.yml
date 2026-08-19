@@ -9,7 +9,7 @@ on:
       version:
         description: Version embedded in installer filenames
         required: true
-        default: 0.1.1
+        default: 0.1.2
   pull_request:
     paths:
       - ".github/workflows/release.yml"
@@ -43,7 +43,7 @@ jobs:
             platform: windows/amd64
     runs-on: ${{ matrix.os }}
     env:
-      INSTALLER_VERSION: ${{ inputs.version || '0.1.1' }}
+      INSTALLER_VERSION: ${{ inputs.version || '0.1.2' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

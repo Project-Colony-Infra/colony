@@ -193,6 +193,10 @@ func Launch(ctx context.Context, cmd Command, coordinatorHost string, logfn func
 		return err
 	}
 	proc := exec.CommandContext(ctx, program, append(prefixArgs, args...)...)
+	proc.Env = append(os.Environ(),
+		"HF_HUB_DISABLE_SYMLINKS_WARNING=1",
+		"HF_HUB_DISABLE_XET=1",
+	)
 	proc.Stdout = &out
 	proc.Stderr = &out
 	if err := proc.Start(); err != nil {

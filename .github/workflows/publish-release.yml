@@ -6,6 +6,9 @@ on:
       tag:
         description: Existing approved release tag
         required: true
+      version:
+        description: Installer artifact version without the v prefix
+        required: true
       installer_run:
         description: Run containing Windows, macOS, and coordinator artifacts
         required: true
@@ -29,10 +32,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts/ubuntu artifacts/windows artifacts/macos-intel artifacts/macos-arm artifacts/coordinator
-          gh run download "${{ inputs.ubuntu_run }}" -n "zonn-node-ubuntu-amd64-0.1.1" -D artifacts/ubuntu
-          gh run download "${{ inputs.installer_run }}" -n "zonn-node-windows-x64-0.1.1" -D artifacts/windows
-          gh run download "${{ inputs.installer_run }}" -n "zonn-node-macos-intel-0.1.1" -D artifacts/macos-intel
-          gh run download "${{ inputs.installer_run }}" -n "zonn-node-macos-apple-silicon-0.1.1" -D artifacts/macos-arm
+          gh run download "${{ inputs.ubuntu_run }}" -n "zonn-node-ubuntu-amd64-${{ inputs.version }}" -D artifacts/ubuntu
+          gh run download "${{ inputs.installer_run }}" -n "zonn-node-windows-x64-${{ inputs.version }}" -D artifacts/windows
+          gh run download "${{ inputs.installer_run }}" -n "zonn-node-macos-intel-${{ inputs.version }}" -D artifacts/macos-intel
+          gh run download "${{ inputs.installer_run }}" -n "zonn-node-macos-apple-silicon-${{ inputs.version }}" -D artifacts/macos-arm
           gh run download "${{ inputs.installer_run }}" -n coordinator-install-candidates -D artifacts/coordinator
 
       - name: Publish release assets

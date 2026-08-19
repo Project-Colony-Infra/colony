@@ -31,6 +31,7 @@ import os
 import socket
 import struct
 import sys
+import threading
 from urllib.parse import urlparse
 
 import numpy as np
@@ -384,6 +385,29 @@ def run_secondary(ws, engine, prompt, max_new_tokens):
         ws.send_binary(pack(np.array(next_id)))
 
 
+def load_engine_with_progress(ws, engine_name, model_name, split, interval=10):
+    loaded = {}
+
+    def load_engine():
+        try:
+            loaded["engine"] = build_engine(engine_name, model_name, split)
+        except BaseException as exc:  # noqa: BLE001 transfer the exception to the main thread
+            loaded["error"] = exc
+
+    loader = threading.Thread(target=load_engine, name="model-loader", daemon=True)
+    loader.start()
+    while loader.is_alive():
+        ws.send_text(json.dumps({
+            "type": "status",
+            "status": f"Loading model {model_name}",
+        }))
+        loader.join(interval)
+    if "error" in loaded:
+        raise loaded["error"]
+    ws.send_text(json.dumps({"type": "status", "status": "Model loaded; starting inference"}))
+    return loaded["engine"]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--role", required=True, choices=["primary", "secondary"])
@@ -395,12 +419,14 @@ def main():
     parser.add_argument("--split", type=float, default=0.5)
     args = parser.parse_args()
 
-    engine = build_engine(args.engine, args.model, args.split)
     ws = WSClient(args.relay_ws)
     ws.connect()
-    print(f"{args.role}: connected to relay with the {args.engine} engine", flush=True)
+    print(f"{args.role}: connected to relay; loading the {args.engine} engine", flush=True)
 
     try:
+        engine = load_engine_with_progress(ws, args.engine, args.model, args.split)
+        print(f"{args.role}: model loaded; starting the {args.engine} engine", flush=True)
+
         if args.role == "primary":
             run_primary(ws, engine, args.prompt)
         else:

@@ -2,7 +2,7 @@
 #define AppPublisher "Zonn"
 #define AppExeName "zonn-node.exe"
 #ifndef AppVersion
-  #define AppVersion "0.1.1-dev"
+  #define AppVersion "0.1.2-dev"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\bin"
